@@ -7,14 +7,50 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabase';
 
-const normalizeDbItem = (item) => ({
-  ...item,
-  isPublished: item.isPublished ?? item.ispublished
-});
+const normalizeShadowingLevel = (value) => {
+  const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!raw) return '';
+  if (/^HSK\s*([1-6])$/.test(raw) || /^HSK[1-6]$/.test(raw)) return raw.replace(/\s+/g, '');
+  if (/^[1-6]$/.test(raw)) return `HSK${raw}`;
+  if (/^LEVEL\s*([1-6])$/.test(raw)) return `HSK${raw.match(/^LEVEL\s*([1-6])$/)[1]}`;
+  return raw;
+};
 
-const toDbItem = ({ isPublished, ispublished, ...item }) => ({
+const normalizeShadowingType = (value) => {
+  const raw = String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!raw) return '';
+  if (['sentence', 'sentences', '句子', 'câu văn', 'cau van', 'cauvan'].includes(raw)) return 'sentence';
+  if (['vocab', 'vocabulary', '词汇', 'từ vựng', 'tu vung', 'tuvung'].includes(raw)) return 'vocab';
+  return raw;
+};
+
+const matchesShadowingType = (itemType, selectedType) => {
+  const typeA = normalizeShadowingType(itemType);
+  const typeB = normalizeShadowingType(selectedType);
+  if (!typeB) return true;
+  if (!typeA) return true;
+  return typeA === typeB || typeA.includes(typeB) || typeB.includes(typeA);
+};
+
+const normalizePublished = (value) => {
+  if (value === true || value === 1 || String(value || '').trim().toLowerCase() === 'true' || String(value || '').trim() === '1') return true;
+  return false;
+};
+
+const normalizeDbItem = (item) => {
+  const titleHint = String(item.title || '').toLowerCase();
+  const typeFallback = titleHint.includes('từ vựng') || titleHint.includes('词汇') ? 'vocab' : titleHint.includes('câu văn') || titleHint.includes('句子') ? 'sentence' : 'vocab';
+  return {
+    ...item,
+    isPublished: normalizePublished(item.isPublished ?? item.ispublished ?? item.is_published ?? item.published),
+    level: normalizeShadowingLevel(item.level || item.Level || item.hskLevel || item.hsk_level || item.levels || ''),
+    type: normalizeShadowingType(item.type || item.Type || item.category || item.kind || typeFallback)
+  };
+};
+
+const toDbItem = ({ isPublished, ispublished, is_published, published, ...item }) => ({
   ...item,
-  ispublished: isPublished ?? ispublished
+  ispublished: isPublished ?? ispublished ?? is_published ?? published ?? false
 });
 
 // --- HỆ THỐNG ĐA NGÔN NGỮ (i18n) ---
@@ -263,6 +299,7 @@ export default function App() {
           .from('shadowing')
           .select('*');
 
+        console.log('Supabase shadowing fetch returned', { shadowingData, shadowingError });
         if (shadowingError) throw shadowingError;
         setDbShadowing((shadowingData || []).map(item => ({
           ...item,
@@ -1563,26 +1600,41 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
 
   useEffect(() => {
     const normalizedLevel = String(level || '').trim().toUpperCase();
+    const normalizedType = String(type || '').trim().toLowerCase();
     const levelLessons = dbShadowing.filter(item => {
-      const published = item.isPublished ?? item.ispublished;
+      const published = item.isPublished ?? item.ispublished ?? item.is_published ?? item.published;
       const itemLevel = String(item.level || '').trim().toUpperCase();
       const isPublished = published === true || published === 'true' || published === 1 || published === '1';
       return isPublished && itemLevel === normalizedLevel;
     });
 
-    const selectedTypeExists = levelLessons.some(item => String(item.type || '').trim().toLowerCase() === type);
+    console.log('ShadowingMode filter debug', {
+      selectedLevel: level,
+      selectedType: type,
+      normalizedLevel,
+      normalizedType,
+      dbShadowingCount: dbShadowing.length,
+      levelLessonsCount: levelLessons.length,
+      levelLessons
+    });
+
+    const selectedTypeExists = levelLessons.some(item => matchesShadowingType(item.type, normalizedType));
     if (!selectedTypeExists && levelLessons.length > 0) {
-      setType(String(levelLessons[0].type || '').trim().toLowerCase() || 'vocab');
+      setType(normalizeShadowingType(levelLessons[0].type) || 'vocab');
     }
   }, [level, dbShadowing, type]);
 
   const lessons = dbShadowing.filter(item => {
-    const published = item.isPublished ?? item.ispublished;
-    const itemLevel = String(item.level || '').trim().toUpperCase();
-    const itemType = String(item.type || '').trim().toLowerCase();
+    const published = item.isPublished ?? item.ispublished ?? item.is_published ?? item.published;
+    const itemLevel = normalizeShadowingLevel(item.level);
+    const itemType = normalizeShadowingType(item.type);
+    const normalizedLevel = normalizeShadowingLevel(level);
+    const normalizedType = normalizeShadowingType(type);
     const isPublished = published === true || published === 'true' || published === 1 || published === '1';
-    return isPublished && itemLevel === level && itemType === type;
+    return isPublished && (itemLevel === normalizedLevel || itemLevel.includes(normalizedLevel) || normalizedLevel.includes(itemLevel)) && matchesShadowingType(itemType, normalizedType);
   });
+
+  console.log('ShadowingMode lessons debug', { level, type, lessonsCount: lessons.length, lessons });
 
   const startPractice = (lesson) => {
     setSelectedLesson(lesson);
