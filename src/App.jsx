@@ -1024,25 +1024,38 @@ Instructions:
           grammar_score: { type: "STRING" },
           vocab_score: { type: "STRING" }
         },
-          estimated_hsk: { type: "STRING" },
         required: ["score", "level", "feedback", "pronunciation_score", "fluency_score"]
       }
-    },
-    model: "gemini-2.5-flash"
+    }
   };
 
-  const delays = [1000, 2000, 4000, 8000, 16000];
-  for (let attempt = 0; attempt <= 5; attempt++) {
+  if (!apiKey) {
+    console.warn('Gemini API key is missing. Falling back to local evaluation.');
+    return null;
+  }
+
+  const modelCandidates = [
+    'gemini-1.5-pro',
+    'gemini-1.5-flash',
+    'gemini-2.5-flash'
+  ];
+
+  for (const model of modelCandidates) {
+    const requestPayload = { ...payload, model };
     try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(requestPayload)
       });
 
-      if (!res.ok) throw new Error(`API Error ${res.status}`);
+      if (!res.ok) {
+        console.warn(`Gemini model ${model} returned HTTP ${res.status}`);
+        continue;
+      }
 
       const data = await res.json();
+      console.log(`Gemini response from ${model}:`, data);
       const textRes = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (textRes) {
@@ -1051,19 +1064,20 @@ Instructions:
           try {
             return JSON.parse(match[0]);
           } catch (parseErr) {
-            console.error("JSON Parse Error", parseErr);
-            throw new Error("Invalid JSON format");
+            console.warn(`Gemini JSON parse failed for model ${model}:`, parseErr);
+            continue;
           }
         }
-        throw new Error("No JSON object found");
-      } else {
-        throw new Error("Empty response");
+        console.warn(`Gemini response from ${model} did not contain parsable JSON`, textRes);
+        continue;
       }
+
+      console.warn(`Gemini response from ${model} was empty or malformed.`);
     } catch (err) {
-      if (attempt === 5) return null;
-      await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+      console.warn(`Gemini request error for model ${model}:`, err);
     }
   }
+
   return null;
 };
 
