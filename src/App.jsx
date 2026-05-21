@@ -1035,8 +1035,6 @@ Instructions:
   }
 
   const modelCandidates = [
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
     'gemini-2.5-flash'
   ];
 
@@ -1065,16 +1063,18 @@ Instructions:
             return JSON.parse(match[0]);
           } catch (parseErr) {
             console.warn(`Gemini JSON parse failed for model ${model}:`, parseErr);
-            continue;
+            return null;
           }
         }
         console.warn(`Gemini response from ${model} did not contain parsable JSON`, textRes);
-        continue;
+        return null;
       }
 
       console.warn(`Gemini response from ${model} was empty or malformed.`);
+      return null;
     } catch (err) {
       console.warn(`Gemini request error for model ${model}:`, err);
+      return null;
     }
   }
 
