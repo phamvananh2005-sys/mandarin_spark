@@ -113,7 +113,7 @@ const dict = {
     gradeAnother: "Chấm bài khác",
     exportPDF: "XUẤT PHIẾU PDF",
     reportTitle: "PHIẾU ĐÁNH GIÁ KỸ NĂNG NÓI",
-    analyzedBy: "Phân tích bởi Mandarin Spark Generative AI",
+    analyzedBy: "Chấm điểm AI",
     student: "Học Viên",
     originalAudio: "Bản ghi âm gốc:",
     avgScore: "Điểm trung bình / 10",
@@ -194,7 +194,7 @@ const dict = {
     gradeAnother: "Grade Another",
     exportPDF: "EXPORT PDF",
     reportTitle: "SPEAKING SKILL ASSESSMENT",
-    analyzedBy: "Analyzed by Mandarin Spark Generative AI",
+    analyzedBy: "AI Grading",
     student: "Student",
     originalAudio: "Original Recording:",
     avgScore: "Average Score / 10",
@@ -473,7 +473,7 @@ export default function App() {
           </svg>
         </div>
 
-        <header className="bg-white/90 backdrop-blur-md shadow-sm border-b border-[#f0e0d8] sticky top-0 z-50 app-content no-print">
+        <header className="bg-[#fff0f5]/90 shadow-sm border-b border-[#f8d7df] sticky top-0 z-50 app-content no-print">
           <div className="max-w-5xl mx-auto px-4 h-16 flex justify-between items-center">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveMode(null); }}>
               {!logoError ? (
@@ -486,7 +486,13 @@ export default function App() {
                   </svg>
                 </div>
               )}
-              <h1 className="font-bold text-xl tracking-tight text-[#C8102E] hidden sm:block">MANDARIN<span className="text-slate-800"> SPARK</span></h1>
+              <div className="flex items-center gap-2">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-[#C8102E]" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2c1.1 0 2 .9 2 2v1h1.5A1.5 1.5 0 0 1 17 6.5V9c0 1.66-1.34 3-3 3H10c-1.66 0-3-1.34-3-3V6.5A1.5 1.5 0 0 1 8.5 5H10V4c0-1.1.9-2 2-2z" fill="#C8102E" />
+                  <path d="M7 11c0 2.76 3.58 5 5 5s5-2.24 5-5v7H7v-7z" fill="#1f2937" />
+                </svg>
+                <h1 className="font-bold text-xl tracking-tight hidden sm:flex"><span className="text-[#C8102E]">Mandarin</span><span className="text-slate-800"> Spark</span></h1>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
@@ -976,109 +982,102 @@ function generateGradingResultFallback(transcript, expectedRawText, level, mode,
   };
 }
 
-const evaluateWithGemini = async (transcript, expectedText, level, mode, lang, requirement = '') => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY; // Thay bằng VITE_GEMINI_API_KEY khi deploy
-  const systemPrompt = `You are a strict but encouraging native Mandarin Chinese AI assistant grading a student's spoken Mandarin (Putonghua).
-Language for feedback: ${lang === 'en' ? 'English' : 'Vietnamese'}.
-Task Mode: ${mode} (vocab = single word, sentence = shadowing, topic = presentation, free = unstructured speech).
-Student's HSK Target Level: ${level}.
-Topic Requirement: "${requirement || 'None'}"
-Model Answer (Suggestion): "${expectedText || 'None'}"
-Student's Voice Transcript: "${transcript}"
+const evaluateWithOpenAI = async (transcript, expectedText, level, mode, lang, requirement = '') => {
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY; // Use VITE_OPENAI_API_KEY in .env
+  const systemPrompt = `Bạn là một giáo viên tiếng Trung giàu kinh nghiệm, chuyên dạy phát âm và khẩu ngữ cho người học ngoại ngữ. Hãy chấm điểm và phản hồi phần nói của học viên theo phong cách tự nhiên, công bằng và hướng dẫn — như một giáo viên thực thụ, KHÔNG như một hệ thống speech-recognition máy móc.
 
-Instructions:
-1. Assess the transcript accurately.
-2. IMPORTANT FOR TOPIC MODE: If Task Mode is 'topic', the student DOES NOT have to closely follow the "Model Answer". The Model Answer is just a suggestion. Evaluate them primarily on how well their speech satisfies the "Topic Requirement", the richness of their vocabulary, and the correctness of their grammar. They are free to use their own ideas.
-3. For 'vocab' and 'sentence' modes: Compare strictly with the Model Answer.
-4. IMPORTANT FOR FREE MODE: If Task Mode is 'free', evaluate the student's actual speaking proficiency based on their vocabulary depth, grammatical complexity, tone/intonation accuracy, and fluency to estimate their HSK level (HSK1, HSK2, HSK3, HSK4, HSK5, or HSK6). Return this estimate in the "estimated_hsk" field.
-5. Find specific errors: tone mistakes, wrong vocabulary, or grammar mistakes. Name the exact words or syllables they mispronounced or mis-toned, and provide corrected suggestions.
-6. CRITICAL TONE & PRONOUN RULE: When writing feedback in Vietnamese, you MUST ALWAYS use the neutral pronoun "bạn" to refer to the student, and "Hệ thống" or "AI" to refer to yourself. NEVER use "em", "thầy", "cô", "mình", or "tôi". Keep the tone professional and encouraging.
-7. Return a JSON object matching this schema:
+Ngôn ngữ phản hồi: ${lang === 'en' ? 'English' : 'Vietnamese'}.
+Task Mode: ${mode} (vocab = WORD MODE, sentence = SENTENCE MODE, topic = TOPIC MODE, free = FREE MODE).
+HSK target: ${level}.
+Yêu cầu chủ đề: "${requirement || 'None'}". Mẫu đáp án: "${expectedText || 'None'}". Bản ghi lời nói: "${transcript}"
+
+Tóm tắt quy tắc chấm (ưu tiên):
+- Ưu tiên độ tự nhiên, lưu loát, ngữ điệu và khả năng hiểu của người bản xứ.
+- Không trừ nặng chỉ vì vài thanh điệu hơi mềm hoặc connected speech trong câu dài.
+- WORD MODE: chấm kỹ phụ âm, vận mẫu, thanh điệu nhưng vẫn khoan dung với accent học viên.
+- SENTENCE/TOPIC/FREE MODE: ưu tiên naturalness và comprehensibility hơn là tách từng chữ.
+
+Tiêu chí (thang 0-10): pronunciation_accuracy, fluency, naturalness, intonation_rhythm, comprehensibility.
+
+Quy tắc trả kết quả:
+- Trả chỉ một duy nhất một đối tượng JSON (không kèm lời giải thích) theo định dạng dưới đây.
+- Nếu có lỗi phát âm cụ thể, liệt kê trong trường "errors" với word, issue, severity, suggestion. Chỉ liệt kê lỗi đáng chú ý (không liệt kê những tiny connected-speech thay đổi tự nhiên).
+
+Đầu ra JSON bắt buộc (ví dụ và schema):
 {
-  "score": "Overall score from 0.0 to 10.0 (e.g., '8.5')",
-  "level": "Performance rank string. If English use 'Excellent/Good/Fair/Needs Practice'. If Vietnamese use 'Xuất sắc/Giỏi/Khá/Cần cố gắng'",
-  "estimated_hsk": "Estimated HSK level (e.g., 'HSK3'). Mandatory for 'free' mode, otherwise empty.",
-  "feedback": "Detailed, personalized feedback pointing out specific errors or praising specific usage.",
-  "pronunciation_score": "0.0 to 10.0 string",
-  "fluency_score": "0.0 to 10.0 string",
-  "accuracy_score": "0.0 to 10.0 string",
-  "grammar_score": "0.0 to 10.0 string",
-  "vocab_score": "0.0 to 10.0 string"
-}`;
+  "overall_score": 8.6,
+  "pronunciation_accuracy": 8.2,
+  "fluency": 9.0,
+  "naturalness": 8.8,
+  "intonation_rhythm": 8.5,
+  "comprehensibility": 9.1,
+  "severity": "minor", // minor|moderate|major
+  "feedback": [
+    "Phát âm nhìn chung tự nhiên và dễ hiểu.",
+    "Có vài thanh điệu hơi mềm trong câu dài nhưng vẫn rất tự nhiên.",
+    "Độ lưu loát và rhythm khá tốt.",
+    "Không cần đọc chậm hơn, hãy tiếp tục giữ nhịp nói tự nhiên."
+  ],
+  "errors": [
+    { "word": "去", "issue": "Âm ü chưa đủ tròn môi", "severity": "minor", "suggestion": "Chu môi nhiều hơn và giữ lưỡi hướng về phía trước." }
+  ]
+}
 
-  const payload = {
-    contents: [{ parts: [{ text: "Grade this student's speech based on the transcript provided." }] }],
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    generationConfig: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: "OBJECT",
-        properties: {
-          score: { type: "STRING" },
-          level: { type: "STRING" },
-          estimated_hsk: { type: "STRING" },
-          feedback: { type: "STRING" },
-          pronunciation_score: { type: "STRING" },
-          fluency_score: { type: "STRING" },
-          accuracy_score: { type: "STRING" },
-          grammar_score: { type: "STRING" },
-          vocab_score: { type: "STRING" }
-        },
-        required: ["score", "level", "feedback", "pronunciation_score", "fluency_score"]
-      }
-    }
-  };
-
+Luôn tuân thủ phong cách: thân thiện, khuyến khích, dễ hiểu cho người học ngoại ngữ. `;
+  // Use OpenAI Chat Completions to produce the JSON grading object
   if (!apiKey) {
-    console.warn('Gemini API key is missing. Falling back to local evaluation.');
+    console.warn('OpenAI API key is missing. Falling back to local evaluation.');
     return null;
   }
 
-  const modelCandidates = [
-    'gemini-2.5-flash'
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: 'Please evaluate the transcript and return only a JSON object exactly matching the schema described in the system prompt.' }
   ];
 
-  for (const model of modelCandidates) {
-    const requestPayload = { ...payload, model };
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload)
-      });
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ model: 'gpt-4.1-nano', messages, temperature: 0 })
+    });
 
-      if (!res.ok) {
-        console.warn(`Gemini model ${model} returned HTTP ${res.status}`);
-        continue;
-      }
+    if (!res.ok) {
+      console.warn(`OpenAI chat completion returned HTTP ${res.status}`);
+      return null;
+    }
 
-      const data = await res.json();
-      console.log(`Gemini response from ${model}:`, data);
-      const textRes = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const data = await res.json();
+    const textRes = data.choices?.[0]?.message?.content;
 
-      if (textRes) {
-        const match = textRes.match(/\{[\s\S]*\}/);
-        if (match) {
+    if (textRes) {
+      const match = textRes.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          return JSON.parse(match[0]);
+        } catch (parseErr) {
+          console.warn('OpenAI JSON parse failed:', parseErr);
           try {
-            return JSON.parse(match[0]);
-          } catch (parseErr) {
-            console.warn(`Gemini JSON parse failed for model ${model}:`, parseErr);
+            return JSON.parse(textRes);
+          } catch (err) {
+            console.warn('OpenAI response is not valid JSON:', err);
             return null;
           }
         }
-        console.warn(`Gemini response from ${model} did not contain parsable JSON`, textRes);
-        return null;
       }
-
-      console.warn(`Gemini response from ${model} was empty or malformed.`);
-      return null;
-    } catch (err) {
-      console.warn(`Gemini request error for model ${model}:`, err);
+      console.warn('OpenAI response did not contain parsable JSON', textRes);
       return null;
     }
-  }
 
-  return null;
+    console.warn('OpenAI response was empty or malformed.');
+    return null;
+  } catch (err) {
+    console.warn('OpenAI request error:', err);
+    return null;
+  }
 };
 
 // ---------------------------------------------------------
@@ -1163,52 +1162,41 @@ function AudioInput({ onAudioReady }) {
   }, []);
 
 
-const transcribeWithOpenAI  = async (file) => {
-  console.log("🚀 Calling Gemini...");
+const transcribeWithOpenAI = async (file) => {
+  console.log("🚀 Calling OpenAI transcription...");
 
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  const uploadUrl = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${apiKey}`;
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) {
+    console.warn('OpenAI API key is missing. Cannot transcribe.');
+    return null;
+  }
 
-  const uploadFormData = new FormData();
-  uploadFormData.append("file", file);
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('model', 'gpt-4o-mini-transcribe');
 
-  const uploadRes = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      "X-Goog-Upload-Protocol": "multipart",
-      "X-Goog-Upload-Command": "upload, finalize",
-      "X-Goog-Header-Provider": "google-ai-studio",
-    },
-    body: uploadFormData,
-  });
+  try {
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: formData
+    });
 
-  const uploadData = await uploadRes.json();
-  const fileUri = uploadData.file.uri;
+    if (!res.ok) {
+      console.warn('OpenAI transcription returned HTTP', res.status);
+      return null;
+    }
 
-  const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  
-  const promptData = {
-    contents: [
-      {
-        parts: [
-          { fileData: { mimeType: file.type, fileUri: fileUri } },
-          { text: "Transcribe this audio file accurately. Output only the transcribed text." }
-        ]
-      }
-    ]
-  };
-
-  const res = await fetch(modelUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(promptData)
-  });
-
-  const data = await res.json();
-  const transcript = data.candidates[0].content.parts[0].text;
-  console.log("✅ Gemini transcript:", transcript);
-
-  return transcript;
+    const data = await res.json();
+    const transcript = data.text;
+    console.log('✅ OpenAI transcript:', transcript);
+    return transcript;
+  } catch (err) {
+    console.warn('OpenAI transcription error:', err);
+    return null;
+  }
 };
 
 
@@ -1461,7 +1449,7 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
             feedback: lang === 'en' ? 'The system could not clearly recognize what you said. Please check your microphone and speak louder.' : 'Hệ thống không nhận diện rõ bạn nói gì. Vui lòng kiểm tra Micro và thử nói lớn hơn nhé.'
           };
         } else {
-          const apiRes = await evaluateWithGemini(transcript, expectedText, levelTarget, type, lang, topicRequirement);
+          const apiRes = await evaluateWithOpenAI(transcript, expectedText, levelTarget, type, lang, topicRequirement);
           if (apiRes) {
             finalResult = {
               score: apiRes.score,
@@ -1707,7 +1695,7 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
             feedback: lang === 'en' ? 'The system could not clearly recognize what you said. Please check your microphone and speak louder.' : 'Hệ thống không nhận diện rõ bạn nói gì. Vui lòng kiểm tra Micro và thử nói lớn hơn nhé.'
           };
         } else {
-          const apiRes = await evaluateWithGemini(transcriptStr, currentItem.cn, level, type, lang);
+          const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
           if (apiRes) {
             res = {
               score: apiRes.score,
