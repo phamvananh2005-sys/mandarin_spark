@@ -305,20 +305,56 @@ export default function App() {
         #printable-report { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: none !important; margin: 0 !important; padding: 0 !important; }
         .no-print { display: none !important; }
       }
-      .fuji-bg { 
-        /* image with gradient overlays (gradients listed first so they sit on top of the image) */
-        background: radial-gradient(circle at top center, rgba(232,66,96,0.18), transparent 28%),
-                    linear-gradient(180deg, rgba(122,11,28,0.6) 0%, rgba(61,3,11,0.6) 55%, rgba(18,3,5,0.6) 100%),
-                    url('/bg.jpg');
-        background-size: cover, cover, cover;
-        background-position: top center, center center, center center;
-        background-repeat: no-repeat;
-        color: #f8fafc;
+      .fuji-bg {
+        /* Chinese ink-wash background: one single image, no tiling/repeating */
         position: relative;
         min-height: 100vh;
         overflow-x: hidden;
+        color: #2f2723;
+        background:
+          radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.64) 0%, rgba(255, 255, 255, 0.32) 28%, rgba(255, 255, 255, 0.06) 55%, rgba(255, 255, 255, 0) 74%),
+          linear-gradient(180deg, rgba(255, 250, 241, 0.78) 0%, rgba(245, 233, 217, 0.38) 48%, rgba(236, 219, 198, 0.56) 100%),
+          url("${bg}");
+        background-size: cover, cover, cover;
+        background-position: center center, center center, center center;
+        background-repeat: no-repeat, no-repeat, no-repeat;
+        background-attachment: fixed, fixed, fixed;
+      }
+      .fuji-bg::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          linear-gradient(90deg, rgba(255, 247, 235, 0.62) 0%, rgba(255, 247, 235, 0.18) 28%, rgba(255, 255, 255, 0.04) 58%, rgba(255, 247, 235, 0.50) 100%),
+          radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.55), transparent 34%);
+      }
+      .fuji-bg::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+        background-image:
+          radial-gradient(circle at 18% 32%, rgba(190, 52, 47, 0.32) 0 2px, transparent 3px),
+          radial-gradient(circle at 82% 42%, rgba(190, 52, 47, 0.20) 0 2px, transparent 3px),
+          radial-gradient(circle at 62% 78%, rgba(190, 52, 47, 0.18) 0 2px, transparent 3px);
+        background-size: 100% 100%;
+        background-repeat: no-repeat;
       }
       .app-content { position: relative; z-index: 10; }
+      .ink-card {
+        background: rgba(255, 250, 242, 0.76);
+        border: 1px solid rgba(158, 118, 76, 0.24);
+        box-shadow: 0 22px 60px rgba(72, 49, 31, 0.13);
+        backdrop-filter: blur(10px);
+      }
+      .ink-card:hover {
+        background: rgba(255, 252, 247, 0.88);
+        border-color: rgba(190, 52, 47, 0.42);
+        box-shadow: 0 28px 70px rgba(72, 49, 31, 0.18);
+      }
       @keyframes sway { 0%,100% { transform: translateX(0px) rotate(0deg); } 25% { transform: translateX(-6px) rotate(-3deg); } 50% { transform: translateX(0px) rotate(0deg); } 75% { transform: translateX(6px) rotate(3deg); } }
     `;
     document.head.appendChild(style);
@@ -370,17 +406,17 @@ export default function App() {
   };
 
   const renderHome = () => (
-    <div className="animate-in fade-in zoom-in-95 duration-500 max-w-4xl mx-auto mt-12 px-4 pb-20">
+    <div className="animate-in fade-in zoom-in-95 duration-500 max-w-4xl mx-auto mt-14 px-4 pb-20">
       <div className="text-center mb-8">
-        <h2 className="text-3xl font-black text-white mb-4">{t('welcome')}</h2>
-        <p className="text-red-100 font-semibold flex items-center justify-center gap-2">
+        <h2 className="text-4xl font-black text-[#2f2723] mb-4 tracking-tight">{t('welcome')}</h2>
+        <p className="text-[#6f625b] font-semibold flex items-center justify-center gap-2">
           {t('subtitle')} <Sparkles size={16} className="text-[#C8102E]" />
         </p>
       </div>
 
       <div className="mb-10 max-w-md mx-auto">
-        <label className="block text-center font-bold text-white-900 mb-3">{t('step1')}</label>
-        <div className="bg-white/95 backdrop-blur-sm p-2 pl-5 rounded-2xl shadow-md border border-[#f0e0d8] flex items-center gap-3 focus-within:ring-2 focus-within:ring-[#C8102E]/50 transition-all">
+        <label className="block text-center font-bold text-[#2f2723] mb-3">{t('step1')}</label>
+        <div className="bg-[#fffaf2]/85 backdrop-blur-md p-2 pl-5 rounded-2xl shadow-xl border border-[#d8b98d]/40 flex items-center gap-3 focus-within:ring-2 focus-within:ring-[#C8102E]/40 transition-all">
           <User className={studentName.trim() ? "text-green-500 transition-colors" : "text-[#C8102E] transition-colors"} />
           <input
             id="student-name-input"
@@ -400,34 +436,34 @@ export default function App() {
       </div>
 
       <div className="text-center mb-6">
-        <label className="block font-bold text-white-900">{t('step2')}</label>
+        <label className="block font-bold text-[#2f2723]">{t('step2')}</label>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6">
-        <button onClick={() => handleModeSelect('shadowing')} className="bg-white/90 backdrop-blur-sm rounded-3xl p-8 border border-[#f0e0d8] shadow-lg hover:shadow-2xl hover:border-[#C8102E] transition-all group text-left relative overflow-hidden">
-          <div className="absolute -right-6 -top-6 w-24 h-24 bg-blue-50 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
+        <button onClick={() => handleModeSelect('shadowing')} className="ink-card rounded-3xl p-8 transition-all group text-left relative overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#b94a48]/10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500"></div>
           <MessageCircle size={40} className="text-[#C8102E] mb-6 relative z-10" />
           <h3 className="text-xl font-bold text-slate-800 mb-2 relative z-10">{t('shadowingTitle')}</h3>
           <p className="text-slate-700 text-sm relative z-10 leading-relaxed">{t('shadowingDesc')}</p>
         </button>
 
-        <button onClick={() => handleModeSelect('topic')} className="bg-white/90 backdrop-blur-sm rounded-3xl p-8 border border-[#f0e0d8] shadow-lg hover:shadow-2xl hover:border-[#C8102E] transition-all group text-left relative overflow-hidden">
-          <div className="absolute -right-6 -top-6 w-24 h-24 bg-red-50 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-          <BookOpen size={40} className="text-[#C8102E] mb-6 relative z-10" />
+        <button onClick={() => handleModeSelect('topic')} className="ink-card rounded-3xl p-8 transition-all group text-left relative overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#3d6b55]/10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500"></div>
+          <BookOpen size={40} className="text-[#3d6b55] mb-6 relative z-10" />
           <h3 className="text-xl font-bold text-slate-800 mb-2 relative z-10">{t('topicTitle')}</h3>
           <p className="text-slate-700 text-sm relative z-10 leading-relaxed">{t('topicDesc')}</p>
         </button>
 
-        <button onClick={() => handleModeSelect('free')} className="bg-white/90 backdrop-blur-sm rounded-3xl p-8 border border-[#f0e0d8] shadow-lg hover:shadow-2xl hover:border-[#C8102E] transition-all group text-left relative overflow-hidden">
-          <div className="absolute -right-6 -top-6 w-24 h-24 bg-green-50 rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-          <Mic size={40} className="text-[#C8102E] mb-6 relative z-10" />
+        <button onClick={() => handleModeSelect('free')} className="ink-card rounded-3xl p-8 transition-all group text-left relative overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#5b6f82]/10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-500"></div>
+          <Mic size={40} className="text-[#5b6f82] mb-6 relative z-10" />
           <h3 className="text-xl font-bold text-slate-800 mb-2 relative z-10">{t('freeTitle')}</h3>
           <p className="text-slate-700 text-sm relative z-10 leading-relaxed">{t('freeDesc')}</p>
         </button>
       </div>
 
       <div className="mt-16 text-center">
-        <button onClick={() => setActiveMode('adminLogin')} className="text-xs text-red-100 hover:text-[#FFF] transition-colors underline decoration-dotted">
+        <button onClick={() => setActiveMode('adminLogin')} className="text-xs text-[#6f625b] hover:text-[#C8102E] transition-colors underline decoration-dotted">
           {t('adminLink')}
         </button>
       </div>
@@ -436,7 +472,7 @@ export default function App() {
 
   return (
     <LanguageContext.Provider value={{ lang, setLang, t }}>
-      <div className="fuji-bg text-white font-sans selection:bg-[#C8102E] selection:text-white">
+      <div className="fuji-bg font-sans selection:bg-[#C8102E] selection:text-white">
 
         {/* PHỤ KIỆN LỒNG ĐÈN
         <div className="absolute left-4 top-32 w-16 h-28 z-0 pointer-events-none" style={{ animation: 'sway 3.5s ease-in-out infinite' }}>
@@ -454,103 +490,9 @@ export default function App() {
           </svg>
         </div> */}
 
-        {/* BACKGROUND GIỐNG HÌNH: QUẠN, CHÙA, HOA, MẶT TRỜI */}
-        <div className="fixed top-0 left-0  h-full pointer-events-none z-0 overflow-hidden">
-          {/* MẶT TRỜI */}
-          <svg viewBox="0 0 1440 900" preserveAspectRatio="none" className="w-full h-full absolute">
-            <defs>
-              <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#f5e6d3" />
-                <stop offset="100%" stopColor="#e8d4c0" />
-              </linearGradient>
-            </defs>
-            <rect width="1440" height="900" fill="url(#skyGrad)" />
-            
-            {/* QUẠN TRUNG QUỐC PHÍA TRÊN PHẢI */}
-            <g transform="translate(1150, 150)">
-              <circle cx="0" cy="0" r="45" fill="#f59e0b" opacity="0.8" />
-              <path d="M -30 0 Q -15 -30 0 -40 Q 15 -30 30 0 Q 15 10 0 15 Q -15 10 -30 0 Z" fill="#dc2626" opacity="0.7" />
-              <path d="M -25 5 Q -12 -20 0 -30 Q 12 -20 25 5" fill="#b91c1c" opacity="0.6" />
-              <path d="M 0 0 L -35 35 L 0 35 L 35 35 Z" fill="#c8102e" opacity="0.5" />
-            </g>
-            
-            {/* CHÙA PAGODA PHÍA TRÊN PHẢI */}
-            <g transform="translate(1100, 200)">
-              {/* THÁP CHÍNH */}
-              <rect x="-20" y="0" width="40" height="150" fill="#c8102e" />
-              <polygon points="0,-20 -30,0 30,0" fill="#a50f26" />
-              
-              {/* MÁI NHỎ CẤP 1 */}
-              <path d="M -35 40 L -50 30 L -50 45 L -35 55 Z" fill="#fcd34d" opacity="0.8" />
-              <path d="M 35 40 L 50 30 L 50 45 L 35 55 Z" fill="#fcd34d" opacity="0.8" />
-              
-              {/* MÁI NHỎ CẤP 2 */}
-              <path d="M -40 80 L -60 70 L -60 85 L -40 95 Z" fill="#fcd34d" opacity="0.8" />
-              <path d="M 40 80 L 60 70 L 60 85 L 40 95 Z" fill="#fcd34d" opacity="0.8" />
-              
-              {/* MỰC NHỌN */}
-              <polygon points="0,150 -15,160 15,160" fill="#a50f26" />
-              <circle cx="0" cy="162" r="3" fill="#fcd34d" />
-            </g>
-            
-            {/* MẶT TRỜI VÀNG */}
-            <circle cx="1050" cy="80" r="80" fill="#fbbf24" opacity="0.9" />
-            <circle cx="1050" cy="80" r="75" fill="#fcd34d" opacity="0.7" />
-            
-            {/* ĐƯƠNG CHÉO VÀ HÌNH VUÔNG TRANG TRÍ PHÍA TRÊN PHẢI */}
-            <g stroke="#c8102e" strokeWidth="3" fill="none" opacity="0.4">
-              <path d="M 1280 10 L 1320 10 L 1320 50" />
-              <rect x="1300" y="25" width="25" height="25" />
-              <path d="M 1380 5 L 1400 5 L 1400 25" />
-            </g>
-            
-            {/* HOA PHÍA TRÊN TRÁI */}
-            <g transform="translate(150, 180)">
-              {/* CÁNH HOA */}
-              <circle cx="0" cy="-35" r="18" fill="#ec4899" opacity="0.8" />
-              <circle cx="35" cy="-17" r="18" fill="#ec4899" opacity="0.8" />
-              <circle cx="35" cy="17" r="18" fill="#ec4899" opacity="0.8" />
-              <circle cx="0" cy="35" r="18" fill="#ec4899" opacity="0.8" />
-              <circle cx="-35" cy="17" r="18" fill="#ec4899" opacity="0.8" />
-              <circle cx="-35" cy="-17" r="18" fill="#ec4899" opacity="0.8" />
-              {/* TÂM HOA */}
-              <circle cx="0" cy="0" r="12" fill="#c8102e" />
-              <circle cx="0" cy="0" r="8" fill="#a50f26" />
-            </g>
-            
-            {/* HOA MẬU ĐƠN PHÍA DƯỚI PHẢI */}
-            <g transform="translate(1200, 700)">
-              <g opacity="0.8">
-                <path d="M 0 -40 Q -30 -30 -40 0 Q -30 30 0 40 Q 30 30 40 0 Q 30 -30 0 -40 Z" fill="#f472b6" />
-                <path d="M 0 -40 Q -30 -20 -35 0 Q -30 20 0 35 Q 30 20 35 0 Q 30 -20 0 -40 Z" fill="#ec4899" />
-                <path d="M -25 -20 Q -40 -25 -45 -5 Q -40 10 -20 15 Q -10 5 -15 -10 Z" fill="#f472b6" />
-                <path d="M 25 -20 Q 40 -25 45 -5 Q 40 10 20 15 Q 10 5 15 -10 Z" fill="#f472b6" />
-                <circle cx="0" cy="0" r="8" fill="#fcd34d" />
-              </g>
-            </g>
-            
-            {/* ĐÈN LỒNG PHÍA TRÁI DƯỚI */}
-            <g transform="translate(120, 750)">
-              <rect x="-20" y="0" width="40" height="60" fill="#c8102e" rx="3" />
-              <path d="M -20 10 L 20 10" stroke="#fcd34d" strokeWidth="2" />
-              <path d="M -20 30 L 20 30" stroke="#fcd34d" strokeWidth="2" />
-              <path d="M -20 50 L 20 50" stroke="#fcd34d" strokeWidth="2" />
-              <line x1="-22" y1="60" x2="-22" y2="80" stroke="#f3d1b1" strokeWidth="3" />
-              <line x1="22" y1="60" x2="22" y2="80" stroke="#f3d1b1" strokeWidth="3" />
-              <circle cx="0" cy="75" r="5" fill="#fcd34d" />
-            </g>
-            
-            {/* MÂY PHÍA TRÊN */}
-            <g opacity="0.3" fill="#cbd5e1">
-              <ellipse cx="250" cy="100" rx="60" ry="30" />
-              <ellipse cx="320" cy="90" rx="50" ry="25" />
-              <ellipse cx="900" cy="120" rx="80" ry="35" />
-              <ellipse cx="1000" cy="100" rx="70" ry="30" />
-            </g>
-          </svg>
-        </div>
+        {/* Single non-repeating Chinese ink-wash background is handled by .fuji-bg above. */}
 
-        <header className="bg-[#fff0f5]/90 shadow-sm border-b border-[#f8d7df] sticky top-0 z-50 app-content no-print">
+        <header className="bg-[#fffaf2]/82 backdrop-blur-xl shadow-sm border-b border-[#d8b98d]/30 sticky top-0 z-50 app-content no-print">
           <div className="max-w-5xl mx-auto px-4 h-16 flex justify-between items-center">
             <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveMode(null); }}>
               {!logoError ? (
