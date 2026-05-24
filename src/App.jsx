@@ -6,6 +6,7 @@ import {
   Lock, LogOut, Plus, Save, X, Info, Trash2, Activity, Globe
 } from 'lucide-react';
 import { supabase } from './supabase';
+import {bg} from './assets';
 
 const normalizeShadowingLevel = (value) => {
   const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '');
