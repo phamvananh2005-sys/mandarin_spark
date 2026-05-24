@@ -6,7 +6,7 @@ import {
   Lock, LogOut, Plus, Save, X, Info, Trash2, Activity, Globe
 } from 'lucide-react';
 import { supabase } from './supabase';
-import {bg} from './assets';
+import bg from './assets/bg.jpg';
 
 const normalizeShadowingLevel = (value) => {
   const raw = String(value || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -309,7 +309,7 @@ export default function App() {
         /* image with gradient overlays (gradients listed first so they sit on top of the image) */
         background: radial-gradient(circle at top center, rgba(232,66,96,0.18), transparent 28%),
                     linear-gradient(180deg, rgba(122,11,28,0.6) 0%, rgba(61,3,11,0.6) 55%, rgba(18,3,5,0.6) 100%),
-                    url('${bg}');
+                    url('/bg.jpg');
         background-size: cover, cover, cover;
         background-position: top center, center center, center center;
         background-repeat: no-repeat;
