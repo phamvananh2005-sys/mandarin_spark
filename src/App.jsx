@@ -44,7 +44,8 @@ const normalizeDbItem = (item) => {
     ...item,
     isPublished: normalizePublished(item.isPublished ?? item.ispublished ?? item.is_published ?? item.published),
     level: normalizeShadowingLevel(item.level || item.Level || item.hskLevel || item.hsk_level || item.levels || ''),
-    type: normalizeShadowingType(item.type || item.Type || item.category || item.kind || typeFallback)
+    type: normalizeShadowingType(item.type || item.Type || item.category || item.kind || typeFallback),
+    items: typeof item.items === 'string' ? JSON.parse(item.items) : (Array.isArray(item.items) ? item.items : [])
   };
 };
 
@@ -52,6 +53,36 @@ const toDbItem = ({ isPublished, ispublished, is_published, published, ...item }
   ...item,
   ispublished: isPublished ?? ispublished ?? is_published ?? published ?? false
 });
+
+// --- PHÁT HIỆN NGÔN NGỮ ---
+const detectLanguageViolation = (transcript) => {
+  if (!transcript || transcript.trim().length === 0) return null;
+  
+  // Regex để kiểm tra ký tự Hán tạo (CJK)
+  const chineseRegex = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
+  const chineseChars = transcript.match(chineseRegex) || [];
+  const chineseRatio = chineseChars.length / transcript.length;
+  
+  // Nếu ít hơn 20% là ký tự Hán, có thể người dùng không nói tiếng Trung
+  if (chineseRatio < 0.2) {
+    // Kiểm tra xem có chứa từ Việt hoặc tiếng Anh thường gặp
+    const vietnamesePatterns = /\b(tôi|bạn|không|được|nói|đây|kia|cái|chiếc|người|có|là|và|hay|hoặc|nhưng|nếu|thì|để|từ|trong|trên|dưới|ngôn|ngữ|tiếng|việt)\b/i;
+    const englishPatterns = /\b(i|you|the|and|or|but|is|are|was|were|be|have|has|do|does|can|could|will|would|should|must|hello|hi|thanks|please|sorry|what|where|when|why|how)\b/i;
+    
+    const hasVietnamese = vietnamesePatterns.test(transcript);
+    const hasEnglish = englishPatterns.test(transcript);
+    
+    if (hasVietnamese || hasEnglish) {
+      return {
+        violated: true,
+        language: hasVietnamese ? 'Vietnamese' : 'English',
+        ratio: chineseRatio
+      };
+    }
+  }
+  
+  return null;
+};
 
 // --- HỆ THỐNG ĐA NGÔN NGỮ (i18n) ---
 const dict = {
@@ -273,7 +304,19 @@ export default function App() {
         #printable-report { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: none !important; margin: 0 !important; padding: 0 !important; }
         .no-print { display: none !important; }
       }
-      .fuji-bg { background: radial-gradient(circle at top center, rgba(232, 66, 96, 0.18), transparent 28%), linear-gradient(180deg, #7a0b1c 0%, #3d030b 55%, #120305 100%); color: #f8fafc; position: relative; min-height: 100vh; overflow-x: hidden; }
+      .fuji-bg { 
+        /* image with gradient overlays (gradients listed first so they sit on top of the image) */
+        background: radial-gradient(circle at top center, rgba(232,66,96,0.18), transparent 28%),
+                    linear-gradient(180deg, rgba(122,11,28,0.6) 0%, rgba(61,3,11,0.6) 55%, rgba(18,3,5,0.6) 100%),
+                    url('${bg}');
+        background-size: cover, cover, cover;
+        background-position: top center, center center, center center;
+        background-repeat: no-repeat;
+        color: #f8fafc;
+        position: relative;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
       .app-content { position: relative; z-index: 10; }
       @keyframes sway { 0%,100% { transform: translateX(0px) rotate(0deg); } 25% { transform: translateX(-6px) rotate(-3deg); } 50% { transform: translateX(0px) rotate(0deg); } 75% { transform: translateX(6px) rotate(3deg); } }
     `;
@@ -301,10 +344,7 @@ export default function App() {
 
         console.log('Supabase shadowing fetch returned', { shadowingData, shadowingError });
         if (shadowingError) throw shadowingError;
-        setDbShadowing((shadowingData || []).map(item => ({
-          ...item,
-          isPublished: item.isPublished ?? item.ispublished
-        })));
+        setDbShadowing((shadowingData || []).map(normalizeDbItem));
       } catch (error) {
         console.error('Error fetching data from Supabase:', error);
         alert('Lỗi khi tải dữ liệu từ cơ sở dữ liệu. Vui lòng thử lại.');
@@ -397,7 +437,7 @@ export default function App() {
     <LanguageContext.Provider value={{ lang, setLang, t }}>
       <div className="fuji-bg text-white font-sans selection:bg-[#C8102E] selection:text-white">
 
-        {/* PHỤ KIỆN LỒNG ĐÈN */}
+        {/* PHỤ KIỆN LỒNG ĐÈN
         <div className="absolute left-4 top-32 w-16 h-28 z-0 pointer-events-none" style={{ animation: 'sway 3.5s ease-in-out infinite' }}>
           <svg viewBox="0 0 80 140" className="w-full h-full">
             <defs>
@@ -411,65 +451,101 @@ export default function App() {
             <line x1="40" y1="98" x2="40" y2="122" stroke="#f3d1b1" strokeWidth="3" />
             <circle cx="40" cy="124" r="6" fill="#f3d1b1" />
           </svg>
-        </div>
-        <div className="absolute right-4 top-36 w-16 h-28 z-0 pointer-events-none" style={{ animation: 'sway 4s ease-in-out infinite' }}>
-          <svg viewBox="0 0 80 140" className="w-full h-full">
+        </div> */}
+
+        {/* BACKGROUND GIỐNG HÌNH: QUẠN, CHÙA, HOA, MẶT TRỜI */}
+        <div className="fixed top-0 left-0  h-full pointer-events-none z-0 overflow-hidden">
+          {/* MẶT TRỜI */}
+          <svg viewBox="0 0 1440 900" preserveAspectRatio="none" className="w-full h-full absolute">
             <defs>
-              <linearGradient id="lanternGrad2" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#f8c2b8" />
-                <stop offset="100%" stopColor="#c8102e" />
+              <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#f5e6d3" />
+                <stop offset="100%" stopColor="#e8d4c0" />
               </linearGradient>
             </defs>
-            <rect x="18" y="18" width="44" height="80" rx="18" fill="url(#lanternGrad2)" stroke="#8b0000" strokeWidth="3" />
-            <path d="M 18 18 Q 40 0 62 18" fill="#a50f26" />
-            <line x1="40" y1="98" x2="40" y2="122" stroke="#f3d1b1" strokeWidth="3" />
-            <circle cx="40" cy="124" r="6" fill="#f3d1b1" />
-          </svg>
-        </div>
-
-        {/* KHÔNG GIAN BẦU TRỜI: BẦY SẾU ĐẦU ĐỎ (CRANES) */}
-        <div className="fixed top-0 left-0 w-full h-[60vh] pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-20 right-[-5%] md:top-24 md:right-8 lg:right-20 w-56 h-56 md:w-72 md:h-72 opacity-50 transform -rotate-12">
-            <svg viewBox="0 0 400 400" className="w-full h-full drop-shadow-md">
-              <g transform="translate(200, 100) scale(1)">
-                <path d="M 0 0 C -40 -30 -60 20 -80 30 C -40 20 -20 10 0 0 Z" fill="#475569" />
-                <path d="M 0 0 C 40 -30 60 20 80 30 C 40 20 20 10 0 0 Z" fill="#94a3b8" />
-                <path d="M 0 0 C -30 -20 -50 30 -70 40 C -30 30 -10 10 0 0 Z" fill="#ffffff" />
-                <path d="M 0 0 C 30 -20 50 30 70 40 C 30 30 10 10 0 0 Z" fill="#f8fafc" />
-                <path d="M -20 -10 C 0 -10 20 -10 0 50 C -10 20 -15 0 -20 -10 Z" fill="#ffffff" />
-                <path d="M -20 -10 C -30 -20 -35 -35 -30 -45 C -25 -30 -15 -20 -20 -10 Z" fill="#ffffff" />
-                <circle cx="-32" cy="-48" r="4" fill="#dc2626" />
-                <path d="M -35 -45 L -45 -50 L -33 -40 Z" fill="#1e293b" />
-                <path d="M -20 -10 C -25 -20 -28 -30 -30 -40 C -28 -25 -20 -15 -20 -10 Z" fill="#1e293b" />
+            <rect width="1440" height="900" fill="url(#skyGrad)" />
+            
+            {/* QUẠN TRUNG QUỐC PHÍA TRÊN PHẢI */}
+            <g transform="translate(1150, 150)">
+              <circle cx="0" cy="0" r="45" fill="#f59e0b" opacity="0.8" />
+              <path d="M -30 0 Q -15 -30 0 -40 Q 15 -30 30 0 Q 15 10 0 15 Q -15 10 -30 0 Z" fill="#dc2626" opacity="0.7" />
+              <path d="M -25 5 Q -12 -20 0 -30 Q 12 -20 25 5" fill="#b91c1c" opacity="0.6" />
+              <path d="M 0 0 L -35 35 L 0 35 L 35 35 Z" fill="#c8102e" opacity="0.5" />
+            </g>
+            
+            {/* CHÙA PAGODA PHÍA TRÊN PHẢI */}
+            <g transform="translate(1100, 200)">
+              {/* THÁP CHÍNH */}
+              <rect x="-20" y="0" width="40" height="150" fill="#c8102e" />
+              <polygon points="0,-20 -30,0 30,0" fill="#a50f26" />
+              
+              {/* MÁI NHỎ CẤP 1 */}
+              <path d="M -35 40 L -50 30 L -50 45 L -35 55 Z" fill="#fcd34d" opacity="0.8" />
+              <path d="M 35 40 L 50 30 L 50 45 L 35 55 Z" fill="#fcd34d" opacity="0.8" />
+              
+              {/* MÁI NHỎ CẤP 2 */}
+              <path d="M -40 80 L -60 70 L -60 85 L -40 95 Z" fill="#fcd34d" opacity="0.8" />
+              <path d="M 40 80 L 60 70 L 60 85 L 40 95 Z" fill="#fcd34d" opacity="0.8" />
+              
+              {/* MỰC NHỌN */}
+              <polygon points="0,150 -15,160 15,160" fill="#a50f26" />
+              <circle cx="0" cy="162" r="3" fill="#fcd34d" />
+            </g>
+            
+            {/* MẶT TRỜI VÀNG */}
+            <circle cx="1050" cy="80" r="80" fill="#fbbf24" opacity="0.9" />
+            <circle cx="1050" cy="80" r="75" fill="#fcd34d" opacity="0.7" />
+            
+            {/* ĐƯƠNG CHÉO VÀ HÌNH VUÔNG TRANG TRÍ PHÍA TRÊN PHẢI */}
+            <g stroke="#c8102e" strokeWidth="3" fill="none" opacity="0.4">
+              <path d="M 1280 10 L 1320 10 L 1320 50" />
+              <rect x="1300" y="25" width="25" height="25" />
+              <path d="M 1380 5 L 1400 5 L 1400 25" />
+            </g>
+            
+            {/* HOA PHÍA TRÊN TRÁI */}
+            <g transform="translate(150, 180)">
+              {/* CÁNH HOA */}
+              <circle cx="0" cy="-35" r="18" fill="#ec4899" opacity="0.8" />
+              <circle cx="35" cy="-17" r="18" fill="#ec4899" opacity="0.8" />
+              <circle cx="35" cy="17" r="18" fill="#ec4899" opacity="0.8" />
+              <circle cx="0" cy="35" r="18" fill="#ec4899" opacity="0.8" />
+              <circle cx="-35" cy="17" r="18" fill="#ec4899" opacity="0.8" />
+              <circle cx="-35" cy="-17" r="18" fill="#ec4899" opacity="0.8" />
+              {/* TÂM HOA */}
+              <circle cx="0" cy="0" r="12" fill="#c8102e" />
+              <circle cx="0" cy="0" r="8" fill="#a50f26" />
+            </g>
+            
+            {/* HOA MẬU ĐƠN PHÍA DƯỚI PHẢI */}
+            <g transform="translate(1200, 700)">
+              <g opacity="0.8">
+                <path d="M 0 -40 Q -30 -30 -40 0 Q -30 30 0 40 Q 30 30 40 0 Q 30 -30 0 -40 Z" fill="#f472b6" />
+                <path d="M 0 -40 Q -30 -20 -35 0 Q -30 20 0 35 Q 30 20 35 0 Q 30 -20 0 -40 Z" fill="#ec4899" />
+                <path d="M -25 -20 Q -40 -25 -45 -5 Q -40 10 -20 15 Q -10 5 -15 -10 Z" fill="#f472b6" />
+                <path d="M 25 -20 Q 40 -25 45 -5 Q 40 10 20 15 Q 10 5 15 -10 Z" fill="#f472b6" />
+                <circle cx="0" cy="0" r="8" fill="#fcd34d" />
               </g>
-              <g transform="translate(100, 200) scale(0.6)">
-                <path d="M 0 0 C -30 -20 -50 30 -70 40 C -30 30 -10 10 0 0 Z" fill="#ffffff" />
-                <path d="M 0 0 C 30 -20 50 30 70 40 C 30 30 10 10 0 0 Z" fill="#f8fafc" />
-                <path d="M -20 -10 C 0 -10 20 -10 0 50 C -10 20 -15 0 -20 -10 Z" fill="#ffffff" />
-                <path d="M -20 -10 C -30 -20 -35 -35 -30 -45 C -25 -30 -15 -20 -20 -10 Z" fill="#ffffff" />
-                <circle cx="-32" cy="-48" r="4" fill="#dc2626" />
-                <path d="M -35 -45 L -45 -50 L -33 -40 Z" fill="#1e293b" />
-                <path d="M -20 -10 C -25 -20 -28 -30 -30 -40 C -28 -25 -20 -15 -20 -10 Z" fill="#1e293b" />
-              </g>
-              <g transform="translate(300, 250) scale(0.4)">
-                <path d="M 0 0 C -30 -20 -50 30 -70 40 C -30 30 -10 10 0 0 Z" fill="#ffffff" />
-                <path d="M 0 0 C 30 -20 50 30 70 40 C 30 30 10 10 0 0 Z" fill="#f8fafc" />
-                <path d="M -20 -10 C 0 -10 20 -10 0 50 C -10 20 -15 0 -20 -10 Z" fill="#ffffff" />
-                <path d="M -20 -10 C -30 -20 -35 -35 -30 -45 C -25 -30 -15 -20 -20 -10 Z" fill="#ffffff" />
-                <circle cx="-32" cy="-48" r="4" fill="#dc2626" />
-                <path d="M -35 -45 L -45 -50 L -33 -40 Z" fill="#1e293b" />
-              </g>
-            </svg>
-          </div>
-        </div>
-
-        {/* CHÂN NÚI PHÚ SĨ */}
-        <div className="fixed bottom-0 left-0 w-full h-[40vh] pointer-events-none z-0 opacity-40">
-          <svg viewBox="0 0 1440 320" preserveAspectRatio="none" className="w-full h-full absolute bottom-0">
-            <path fill="#fca5a5" fillOpacity="0.2" d="M0,320L1440,320L1440,250L1100,100L850,250L600,80L350,220L0,150Z"></path>
-            <path fill="#94a3b8" d="M 400 320 L 720 120 L 1040 320 Z"></path>
-            <path fill="#ffffff" d="M 640 170 L 720 120 L 800 170 L 760 190 L 720 160 L 680 190 Z"></path>
-            <circle cx="850" cy="100" r="40" fill="#C8102E" opacity="0.3"></circle>
+            </g>
+            
+            {/* ĐÈN LỒNG PHÍA TRÁI DƯỚI */}
+            <g transform="translate(120, 750)">
+              <rect x="-20" y="0" width="40" height="60" fill="#c8102e" rx="3" />
+              <path d="M -20 10 L 20 10" stroke="#fcd34d" strokeWidth="2" />
+              <path d="M -20 30 L 20 30" stroke="#fcd34d" strokeWidth="2" />
+              <path d="M -20 50 L 20 50" stroke="#fcd34d" strokeWidth="2" />
+              <line x1="-22" y1="60" x2="-22" y2="80" stroke="#f3d1b1" strokeWidth="3" />
+              <line x1="22" y1="60" x2="22" y2="80" stroke="#f3d1b1" strokeWidth="3" />
+              <circle cx="0" cy="75" r="5" fill="#fcd34d" />
+            </g>
+            
+            {/* MÂY PHÍA TRÊN */}
+            <g opacity="0.3" fill="#cbd5e1">
+              <ellipse cx="250" cy="100" rx="60" ry="30" />
+              <ellipse cx="320" cy="90" rx="50" ry="25" />
+              <ellipse cx="900" cy="120" rx="80" ry="35" />
+              <ellipse cx="1000" cy="100" rx="70" ry="30" />
+            </g>
           </svg>
         </div>
 
@@ -480,17 +556,14 @@ export default function App() {
                 <img src="171045151_1082518945577423_933278627676106455_n (4).png" alt="MVA Logo" className="h-8 w-auto object-contain" onError={() => setLogoError(true)} />
               ) : (
                 <div className="w-8 h-8 flex items-center justify-center">
-                  <svg viewBox="0 0 100 100" fill="none" stroke="#C8102E" strokeWidth="12" strokeLinecap="butt" strokeLinejoin="miter" className="w-full h-full">
+                  <svg viewBox="0 0 100 100" fill="none" stroke="#ff6000" strokeWidth="12" strokeLinecap="butt" strokeLinejoin="miter" className="w-full h-full">
                     <path d="M 15 90 L 15 15 L 50 50 L 85 15 L 85 90" />
                     <path d="M 85 90 L 50 50" />
                   </svg>
                 </div>
               )}
               <div className="flex items-center gap-2">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-[#C8102E]" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2c1.1 0 2 .9 2 2v1h1.5A1.5 1.5 0 0 1 17 6.5V9c0 1.66-1.34 3-3 3H10c-1.66 0-3-1.34-3-3V6.5A1.5 1.5 0 0 1 8.5 5H10V4c0-1.1.9-2 2-2z" fill="#C8102E" />
-                  <path d="M7 11c0 2.76 3.58 5 5 5s5-2.24 5-5v7H7v-7z" fill="#1f2937" />
-                </svg>
+          
                 <h1 className="font-bold text-xl tracking-tight hidden sm:flex"><span className="text-[#C8102E]">Mandarin</span><span className="text-slate-800"> Spark</span></h1>
               </div>
             </div>
@@ -632,7 +705,10 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
       const parts = line.split('/').map(p => p.trim());
       return { cn: parts[0] || '', pinyin: parts[1] || '', vi: parts[2] || '', en: parts[3] || '' };
     });
-    const newShadow = { ...editingShadow, items: parsedItems, isPublished };
+    
+    if (parsedItems.length === 0) { alert("Vui lòng thêm ít nhất 1 hạng mục!"); return; }
+    
+    const newShadow = { ...editingShadow, items: JSON.stringify(parsedItems), isPublished };
     if (!newShadow.id) newShadow.id = 's_' + Date.now();
 
     try {
@@ -1088,94 +1164,54 @@ function AudioInput({ onAudioReady }) {
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const timerRef = useRef(null);
+
+  // ❌ vẫn giữ nhưng KHÔNG dùng cho transcript nữa
   const recognitionRef = useRef(null);
-  const transcriptRef = useRef('');
 
-
-  // ✅ Detect SpeechRecognition
+  // ✅ Detect SpeechRecognition (chỉ để future nếu cần)
   const isSpeechSupported =
     typeof window !== "undefined" &&
     (window.SpeechRecognition || window.webkitSpeechRecognition);
 
-
-  // ✅ Detect MIME type phù hợp (fix iPhone)
+  // 🔥 Ưu tiên mp4 để tránh lỗi nhận sai ngôn ngữ
   const getMimeType = () => {
     if (typeof MediaRecorder === "undefined") return '';
 
-
-    if (MediaRecorder.isTypeSupported('audio/webm')) {
-      return 'audio/webm';
-    }
-
-
-    if (MediaRecorder.isTypeSupported('audio/mp4')) {
-      return 'audio/mp4';
-    }
-
-
-    if (MediaRecorder.isTypeSupported('audio/mpeg')) {
-      return 'audio/mpeg';
-    }
-
+    if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+    if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
+    if (MediaRecorder.isTypeSupported('audio/mpeg')) return 'audio/mpeg';
 
     return '';
   };
 
-
+  // (giữ lại nhưng không ảnh hưởng gì)
   useEffect(() => {
     if (!isSpeechSupported) {
-      console.log("❌ No SpeechRecognition → will use OpenAI");
       recognitionRef.current = null;
       return;
     }
 
-
-    console.log("✅ Using browser SpeechRecognition");
-
-
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
 
-
     const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
-      recognition.lang = 'zh-CN';
     recognition.continuous = true;
     recognition.interimResults = true;
-
-
-    recognition.onresult = (event) => {
-      let fullTranscript = '';
-      for (let i = 0; i < event.results.length; ++i) {
-        fullTranscript += event.results[i][0].transcript;
-      }
-      transcriptRef.current = fullTranscript;
-    };
-
-
-    recognition.onerror = (err) => {
-      console.log("⚠️ SpeechRecognition error:", err);
-    };
-
 
     recognitionRef.current = recognition;
   }, []);
 
+  // 🔥 OpenAI auto multi-language
+  const transcribeWithOpenAI = async (file) => {
+    console.log("🚀 Calling OpenAI transcription...");
 
-const transcribeWithOpenAI = async (file) => {
-  console.log("🚀 Calling OpenAI transcription...");
+    const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    if (!apiKey) return null;
 
-  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-  if (!apiKey) {
-    console.warn('OpenAI API key is missing. Cannot transcribe.');
-    return null;
-  }
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('model', 'gpt-4o-mini-transcribe');
 
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('model', 'gpt-4o-mini-transcribe');
-
-  try {
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
@@ -1184,21 +1220,11 @@ const transcribeWithOpenAI = async (file) => {
       body: formData
     });
 
-    if (!res.ok) {
-      console.warn('OpenAI transcription returned HTTP', res.status);
-      return null;
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
-    const transcript = data.text;
-    console.log('✅ OpenAI transcript:', transcript);
-    return transcript;
-  } catch (err) {
-    console.warn('OpenAI transcription error:', err);
-    return null;
-  }
-};
-
+    return data.text;
+  };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -1207,69 +1233,44 @@ const transcribeWithOpenAI = async (file) => {
     }
   };
 
-
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-
       const mimeType = getMimeType();
-      console.log("🎤 Using MIME type:", mimeType);
-
+      console.log("🎤 MIME:", mimeType);
 
       const recorder = new MediaRecorder(
         stream,
         mimeType ? { mimeType } : {}
       );
 
-
       const chunks = [];
-      transcriptRef.current = '';
 
-
-      if (recognitionRef.current) {
-        try { recognitionRef.current.start(); } catch (e) { }
-      }
-
-
-      recorder.ondataavailable = e => chunks.push(e.data);
-
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
 
       recorder.onstop = async () => {
         const blob = new Blob(chunks, {
-          type: mimeType || 'audio/webm'
+          type: mimeType || 'audio/mp4'
         });
-
-
-        const extension = mimeType.includes('mp4')
-          ? 'mp4'
-          : mimeType.includes('mpeg')
-            ? 'mp3'
-            : 'webm';
-
 
         const file = new File(
           [blob],
-          `recorded.${extension}`,
+          `recorded.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`,
           { type: blob.type }
         );
 
+        let transcript = null;
 
-        let transcript = transcriptRef.current;
-
-
-        // 🔥 fallback OpenAI nếu không có SpeechRecognition
-        if (!isSpeechSupported) {
-          try {
-            transcript = await transcribeWithOpenAI(file);
-          } catch (e) {
-            console.log("❌ OpenAI error:", e);
-            transcript = null;
-          }
-        } else {
-          console.log("🧠 Browser transcript:", transcript);
+        try {
+          // 🔥 LUÔN dùng OpenAI
+          transcript = await transcribeWithOpenAI(file);
+          console.log("✅ FINAL AI TRANSCRIPT:", transcript);
+        } catch (e) {
+          console.log("❌ OpenAI error:", e);
         }
-
 
         onAudioReady(
           file,
@@ -1278,43 +1279,31 @@ const transcribeWithOpenAI = async (file) => {
           false
         );
 
-
         clearInterval(timerRef.current);
         setRecordingTime(0);
       };
-
 
       recorder.start();
       setMediaRecorder(recorder);
       setIsRecording(true);
 
-
       timerRef.current = setInterval(() => {
         setRecordingTime(prev => prev + 1);
       }, 1000);
-
 
     } catch (err) {
       alert("Không thể truy cập Microphone.");
     }
   };
 
-
   const stopRecording = () => {
     if (mediaRecorder && isRecording) {
       mediaRecorder.stop();
-
-
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) { }
-      }
-
 
       setIsRecording(false);
       mediaRecorder.stream.getTracks().forEach(track => track.stop());
     }
   };
-
 
   return (
     <div className="grid md:grid-cols-2 gap-4">
@@ -1325,10 +1314,8 @@ const transcribeWithOpenAI = async (file) => {
         <p className="text-xs text-slate-500 mt-1">Hệ thống sẽ giả lập chấm điểm</p>
       </div>
 
-
       <div className={`border-2 rounded-2xl p-6 flex flex-col items-center justify-center transition-all duration-200 ${isRecording ? 'border-[#C8102E] bg-[#fff0f5] shadow-inner' : 'border-[#C8102E]/30 bg-red-50/30 relative overflow-hidden'}`}>
         {!isRecording && <div className="absolute top-0 right-0 bg-[#C8102E] text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Khuyên dùng AI</div>}
-
 
         {isRecording ? (
           <>
@@ -1355,6 +1342,7 @@ const transcribeWithOpenAI = async (file) => {
     </div>
   );
 }
+
 
 
 // ---------------------------------------------------------
@@ -1449,29 +1437,42 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
             feedback: lang === 'en' ? 'The system could not clearly recognize what you said. Please check your microphone and speak louder.' : 'Hệ thống không nhận diện rõ bạn nói gì. Vui lòng kiểm tra Micro và thử nói lớn hơn nhé.'
           };
         } else {
-          const apiRes = await evaluateWithOpenAI(transcript, expectedText, levelTarget, type, lang, topicRequirement);
-          if (apiRes) {
+          // 🔥 KIỂM TRA NGÔN NGỮ: Nếu không phải tiếng Trung thì cảnh báo
+          const langViolation = detectLanguageViolation(transcript);
+          if (langViolation && langViolation.violated) {
             finalResult = {
-              score: apiRes.score,
-              level: apiRes.level,
-              estimated_hsk: apiRes.estimated_hsk || '',
-              criteria: {
-                [t('cPronunciation')]: apiRes.pronunciation_score || "0.0",
-                [t('cFluency')]: apiRes.fluency_score || "0.0",
-              },
-              feedback: apiRes.feedback
+              score: '1.0',
+              level: lang === 'en' ? 'Invalid Language' : 'Sai Ngôn Ngữ',
+              criteria: { [t('cPronunciation')]: '1.0', [t('cFluency')]: '1.0' },
+              feedback: lang === 'en' 
+                ? `⚠️ ERROR: You spoke ${langViolation.language} instead of Mandarin Chinese! Please repeat in Mandarin.`
+                : `⚠️ LỖI: Bạn nói tiếng ${langViolation.language} thay vì tiếng Trung Quốc! Vui lòng nhập lại bằng tiếng Trung.`
             };
-            if (type === 'topic') {
-              finalResult.criteria[t('cGrammar')] = apiRes.grammar_score || "0.0";
-              finalResult.criteria[t('cVocabRichness')] = apiRes.vocab_score || "0.0";
-              finalResult.criteria[t('cTopicRelevance')] = apiRes.accuracy_score || "0.0";
-            } else {
-              finalResult.criteria[t('cGrammar')] = apiRes.grammar_score || "0.0";
-              finalResult.criteria[t('cIdeaDev')] = apiRes.vocab_score || "0.0";
-            }
           } else {
-            // Fallback an toàn nếu API quá tải
-            finalResult = generateGradingResultFallback(transcript, expectedText, levelTarget, type, lang, t);
+            const apiRes = await evaluateWithOpenAI(transcript, expectedText, levelTarget, type, lang, topicRequirement);
+            if (apiRes) {
+              finalResult = {
+                score: apiRes.overall_score || apiRes.score || "0.0",
+                level: apiRes.level,
+                estimated_hsk: apiRes.estimated_hsk || '',
+                criteria: {
+                  [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
+                  [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
+                },
+                feedback: Array.isArray(apiRes.feedback) ? apiRes.feedback.join('\n') : (apiRes.feedback || "")
+              };
+              if (type === 'topic') {
+                finalResult.criteria[t('cGrammar')] = (apiRes.grammar || "0.0").toString();
+                finalResult.criteria[t('cVocabRichness')] = (apiRes.comprehensibility || "0.0").toString();
+                finalResult.criteria[t('cTopicRelevance')] = (apiRes.naturalness || "0.0").toString();
+              } else {
+                finalResult.criteria[t('cGrammar')] = (apiRes.comprehensibility || "0.0").toString();
+                finalResult.criteria[t('cIdeaDev')] = (apiRes.intonation_rhythm || "0.0").toString();
+              }
+            } else {
+              // Fallback an toàn nếu API quá tải
+              finalResult = generateGradingResultFallback(transcript, expectedText, levelTarget, type, lang, t);
+            }
           }
         }
       }
@@ -1695,21 +1696,34 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
             feedback: lang === 'en' ? 'The system could not clearly recognize what you said. Please check your microphone and speak louder.' : 'Hệ thống không nhận diện rõ bạn nói gì. Vui lòng kiểm tra Micro và thử nói lớn hơn nhé.'
           };
         } else {
-          const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
+          // 🔥 KIỂM TRA NGÔN NGỮ: Nếu không phải tiếng Trung thì cảnh báo
+          const langViolation = detectLanguageViolation(transcriptStr);
+          if (langViolation && langViolation.violated) {
+            res = {
+              score: '1.0',
+              level: lang === 'en' ? 'Wrong Language' : 'Sai Ngôn Ngữ',
+              criteria: { [t('cPronunciation')]: '1.0', [t('cFluency')]: '1.0', [t('cContentAccuracy')]: '1.0' },
+              feedback: lang === 'en' 
+                ? `⚠️ ERROR: You spoke ${langViolation.language} instead of Mandarin Chinese! The target was:\n${currentItem.cn} (${currentItem.pinyin})\n\nPlease try again in Mandarin.`
+                : `⚠️ LỖI: Bạn nói tiếng ${langViolation.language} thay vì tiếng Trung Quốc! Bạn cần nói:\n${currentItem.cn} (${currentItem.pinyin})\n\nVui lòng thử lại bằng tiếng Trung.`
+            };
+          } else {
+            const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
           if (apiRes) {
             res = {
-              score: apiRes.score,
+              score: apiRes.overall_score || apiRes.score || "0.0",
               level: apiRes.level,
               criteria: {
-                [t('cPronunciation')]: apiRes.pronunciation_score || "0.0",
-                [t('cFluency')]: apiRes.fluency_score || "0.0",
-                [t('cContentAccuracy')]: apiRes.accuracy_score || "0.0"
+                [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
+                [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
+                [t('cContentAccuracy')]: (apiRes.comprehensibility || apiRes.accuracy_score || "0.0").toString()
               },
-              feedback: apiRes.feedback
+              feedback: Array.isArray(apiRes.feedback) ? apiRes.feedback.join('\n') : (apiRes.feedback || "")
             };
           } else {
             // Fallback an toàn nếu API quá tải
             res = generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t);
+            }
           }
         }
       }
