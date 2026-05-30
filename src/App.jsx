@@ -58,21 +58,21 @@ const toDbItem = ({ isPublished, ispublished, is_published, published, ...item }
 // --- PHÁT HIỆN NGÔN NGỮ ---
 const detectLanguageViolation = (transcript) => {
   if (!transcript || transcript.trim().length === 0) return null;
-  
+
   // Regex để kiểm tra ký tự Hán tạo (CJK)
   const chineseRegex = /[\u4E00-\u9FFF\u3400-\u4DBF]/g;
   const chineseChars = transcript.match(chineseRegex) || [];
   const chineseRatio = chineseChars.length / transcript.length;
-  
+
   // Nếu ít hơn 20% là ký tự Hán, có thể người dùng không nói tiếng Trung
   if (chineseRatio < 0.2) {
     // Kiểm tra xem có chứa từ Việt hoặc tiếng Anh thường gặp
     const vietnamesePatterns = /\b(tôi|bạn|không|được|nói|đây|kia|cái|chiếc|người|có|là|và|hay|hoặc|nhưng|nếu|thì|để|từ|trong|trên|dưới|ngôn|ngữ|tiếng|việt)\b/i;
     const englishPatterns = /\b(i|you|the|and|or|but|is|are|was|were|be|have|has|do|does|can|could|will|would|should|must|hello|hi|thanks|please|sorry|what|where|when|why|how)\b/i;
-    
+
     const hasVietnamese = vietnamesePatterns.test(transcript);
     const hasEnglish = englishPatterns.test(transcript);
-    
+
     if (hasVietnamese || hasEnglish) {
       return {
         violated: true,
@@ -81,7 +81,7 @@ const detectLanguageViolation = (transcript) => {
       };
     }
   }
-  
+
   return null;
 };
 
@@ -506,8 +506,11 @@ export default function App() {
                 </div>
               )}
               <div className="flex items-center gap-2">
-          
-                <h1 className="font-bold text-xl tracking-tight hidden sm:flex"><span className="text-[#C8102E]">Mandarin</span><span className="text-slate-800"> Spark</span></h1>
+
+                <h1 className="font-bold text-xl tracking-tight hidden sm:flex uppercase">
+                  <span className="text-[#C8102E]">MANDARIN</span>
+                  <span className="text-slate-800">&nbsp;SPARK</span>
+                </h1>
               </div>
             </div>
 
@@ -599,7 +602,7 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
   const [tab, setTab] = useState('topics');
   const [editingTopic, setEditingTopic] = useState(null);
   const [editingShadow, setEditingShadow] = useState(null);
-  const [shadowItemsText, setShadowItemsText] = useState('');
+  const [shadowItems, setShadowItems] = useState([{ cn: '', pinyin: '', vi: '', en: '' }]);
 
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
@@ -644,13 +647,18 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
 
   const saveShadow = async (isPublished) => {
     if (!editingShadow.title) { alert("Nhập tên bài học!"); return; }
-    const parsedItems = shadowItemsText.split('\n').filter(line => line.trim() !== '').map(line => {
-      const parts = line.split('/').map(p => p.trim());
-      return { cn: parts[0] || '', pinyin: parts[1] || '', vi: parts[2] || '', en: parts[3] || '' };
-    });
-    
+
+    const parsedItems = shadowItems
+      .filter(item => item.cn?.trim() || item.pinyin?.trim() || item.vi?.trim() || item.en?.trim())
+      .map(item => ({
+        cn: item.cn || '',
+        pinyin: item.pinyin || '',
+        vi: item.vi || '',
+        en: item.en || ''
+      }));
+
     if (parsedItems.length === 0) { alert("Vui lòng thêm ít nhất 1 hạng mục!"); return; }
-    
+
     const newShadow = { ...editingShadow, items: JSON.stringify(parsedItems), isPublished };
     if (!newShadow.id) newShadow.id = 's_' + Date.now();
 
@@ -670,6 +678,7 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
       setDbShadowing((shadowingData || []).map(normalizeDbItem));
 
       setEditingShadow(null);
+      setShadowItems([{ cn: '', pinyin: '', vi: '', en: '' }]);
       alert("Lưu thành công!");
     } catch (error) {
       console.error('Error saving shadowing:', error);
@@ -778,7 +787,15 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
   const startEditTopic = (t) => { setEditingTopic({ ...t }); };
   const startEditShadow = (s) => {
     setEditingShadow({ ...s });
-    setShadowItemsText(s.items.map(i => `${i.cn} / ${i.pinyin} / ${i.vi} ${i.en ? `/ ${i.en}` : ''}`).join('\n'));
+    const existingItems = Array.isArray(s.items) && s.items.length > 0
+      ? s.items.map(item => ({
+          cn: item.cn || '',
+          pinyin: item.pinyin || '',
+          vi: item.vi || '',
+          en: item.en || ''
+        }))
+      : [{ cn: '', pinyin: '', vi: '', en: '' }];
+    setShadowItems(existingItems);
   };
 
   return (
@@ -878,7 +895,7 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
                 <>
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="font-bold text-xl text-slate-800">Kho Shadowing</h3>
-                    <button onClick={() => { setEditingShadow({ id: 's_' + Date.now(), title: '', level: 'HSK1', type: 'sentence', isPublished: false, items: [] }); setShadowItemsText(''); }} className="bg-[#C8102E] text-white px-4 py-2 rounded-lg font-bold text-sm"><Plus size={18} className="inline" /> Thêm mới</button>
+                    <button onClick={() => { setEditingShadow({ id: 's_' + Date.now(), title: '', level: 'HSK1', type: 'sentence', isPublished: false, items: [] }); setShadowItems([{ cn: '', pinyin: '', vi: '', en: '' }]); }} className="bg-[#C8102E] text-white px-4 py-2 rounded-lg font-bold text-sm"><Plus size={18} className="inline" /> Thêm mới</button>
                   </div>
                   <div className="space-y-4">
                     {dbShadowing.map(shadow => (
@@ -911,15 +928,103 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
                   </div>
                   <div className="mb-4">
                     <label className="block text-sm font-bold mb-2">Danh sách Từ vựng / Câu</label>
-                    <div className="bg-red-50 text-red-800 p-4 rounded-xl text-sm font-medium mb-3 border border-red-200 shadow-inner">
-                      <p className="mb-2"><strong>Cú pháp bắt buộc:</strong> <code>Tiếng Trung / Pinyin / Tiếng Việt / Tiếng Anh</code> (Ngăn cách bằng dấu <code>/</code>)</p>
-                      <p className="mb-2"><strong>Chú thích Pinyin:</strong> <code>[汉字|pinyin]</code></p>
-                      <ul className="list-disc pl-5 space-y-1 mt-2 text-xs opacity-90">
-                        <li>VD Từ vựng: <code>[学|xué]校 / xuéxiào / Trường học / School</code></li>
-                        <li>VD Câu văn: <code>[你|nǐ]好。 / nǐ hǎo. / Xin chào. / Hello.</code></li>
-                      </ul>
+                    <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm font-medium mb-4 border border-blue-200 shadow-inner">
+                      <p className="mb-2"><strong>Nhập từng hạng mục bằng các ô riêng:</strong> Tiếng Trung, Pinyin, Tiếng Việt, Tiếng Anh.</p>
+                      <p><strong>Chú thích Pinyin trong ô Tiếng Trung:</strong> <code>[汉字|pinyin]</code> — ví dụ <code>[学|xué]校</code>.</p>
                     </div>
-                    <textarea value={shadowItemsText} onChange={e => setShadowItemsText(e.target.value)} className="w-full p-4 border rounded-xl h-64 font-mono text-sm leading-relaxed text-slate-900 placeholder:text-slate-500" placeholder="[学|xué]校 / xuéxiào / Trường học / School" />
+
+                    <div className="space-y-4">
+                      {shadowItems.map((item, index) => (
+                        <div key={index} className="p-4 border rounded-xl bg-slate-50 space-y-3">
+                          <div className="flex justify-between items-center gap-3">
+                            <p className="font-bold text-sm text-slate-700">Hạng mục {index + 1}</p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (shadowItems.length === 1) {
+                                  setShadowItems([{ cn: '', pinyin: '', vi: '', en: '' }]);
+                                  return;
+                                }
+                                setShadowItems(shadowItems.filter((_, i) => i !== index));
+                              }}
+                              className="text-red-500 hover:text-red-700 text-sm font-bold flex items-center gap-1"
+                            >
+                              <Trash2 size={14} /> Xóa
+                            </button>
+                          </div>
+
+                          <div className="grid md:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Tiếng Trung</label>
+                              <input
+                                type="text"
+                                value={item.cn}
+                                onChange={e => {
+                                  const updated = [...shadowItems];
+                                  updated[index] = { ...updated[index], cn: e.target.value };
+                                  setShadowItems(updated);
+                                }}
+                                className="w-full p-3 border rounded-xl text-slate-900 placeholder:text-slate-500"
+                                placeholder="VD: [学|xué]校 hoặc [你|nǐ]好。"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Pinyin</label>
+                              <input
+                                type="text"
+                                value={item.pinyin}
+                                onChange={e => {
+                                  const updated = [...shadowItems];
+                                  updated[index] = { ...updated[index], pinyin: e.target.value };
+                                  setShadowItems(updated);
+                                }}
+                                className="w-full p-3 border rounded-xl text-slate-900 placeholder:text-slate-500"
+                                placeholder="VD: xuéxiào / nǐ hǎo"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Tiếng Việt</label>
+                              <input
+                                type="text"
+                                value={item.vi}
+                                onChange={e => {
+                                  const updated = [...shadowItems];
+                                  updated[index] = { ...updated[index], vi: e.target.value };
+                                  setShadowItems(updated);
+                                }}
+                                className="w-full p-3 border rounded-xl text-slate-900 placeholder:text-slate-500"
+                                placeholder="VD: Trường học / Xin chào"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Tiếng Anh</label>
+                              <input
+                                type="text"
+                                value={item.en}
+                                onChange={e => {
+                                  const updated = [...shadowItems];
+                                  updated[index] = { ...updated[index], en: e.target.value };
+                                  setShadowItems(updated);
+                                }}
+                                className="w-full p-3 border rounded-xl text-slate-900 placeholder:text-slate-500"
+                                placeholder="VD: School / Hello"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShadowItems([...shadowItems, { cn: '', pinyin: '', vi: '', en: '' }])}
+                      className="mt-4 px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg font-bold text-sm flex items-center gap-2"
+                    >
+                      <Plus size={16} /> Thêm hạng mục
+                    </button>
                   </div>
                   <div className="flex gap-4 mt-8 pt-4 border-t"><button onClick={() => saveShadow(false)} className="flex-1 bg-slate-200 py-3 rounded-xl font-bold">Lưu Nháp</button><button onClick={() => saveShadow(true)} className="flex-1 bg-[#C8102E] text-white py-3 rounded-xl font-bold">Lưu & Public</button></div>
                 </div>
@@ -1001,49 +1106,194 @@ function generateGradingResultFallback(transcript, expectedRawText, level, mode,
   };
 }
 
+const buildEvidenceBasedFeedbackText = (apiRes, lang) => {
+  const isEn = lang === 'en';
+  const lines = [];
+
+  const addSection = (title, items, formatter) => {
+    if (!items || !Array.isArray(items) || items.length === 0) return;
+    lines.push(`\n${title}`);
+    items.forEach((item, index) => {
+      if (typeof item === 'string') {
+        lines.push(`${index + 1}. ${item}`);
+      } else {
+        lines.push(`${index + 1}. ${formatter(item)}`);
+      }
+    });
+  };
+
+  if (apiRes.spoken_transcript) {
+    lines.push(isEn ? `What the learner said: "${apiRes.spoken_transcript}"` : `Học viên đã nói: "${apiRes.spoken_transcript}"`);
+  }
+
+  addSection(
+    isEn ? 'Strengths based on the speech:' : 'Điểm tốt bám sát bài nói:',
+    apiRes.strengths,
+    item => {
+      const quote = item.quote || item.text || item.phrase || '';
+      const reason = item.reason || item.comment || '';
+      return quote ? `"${quote}" — ${reason}` : reason;
+    }
+  );
+
+  addSection(
+    isEn ? 'Specific points to improve:' : 'Điểm cần sửa cụ thể:',
+    apiRes.weaknesses,
+    item => {
+      const quote = item.quote || item.text || item.phrase || '';
+      const issue = item.issue || item.reason || '';
+      const suggestion = item.suggestion || '';
+      return `${quote ? `"${quote}" — ` : ''}${issue}${suggestion ? ` ${isEn ? 'Suggestion:' : 'Gợi ý:'} ${suggestion}` : ''}`;
+    }
+  );
+
+  if (apiRes.content_analysis) {
+    const ca = apiRes.content_analysis;
+    lines.push(isEn ? '\nContent analysis:' : '\nPhân tích nội dung:');
+
+    if (Array.isArray(ca.main_ideas_detected) && ca.main_ideas_detected.length > 0) {
+      lines.push(isEn ? `- Ideas covered: ${ca.main_ideas_detected.join('; ')}` : `- Ý đã nói được: ${ca.main_ideas_detected.join('; ')}`);
+    }
+
+    if (Array.isArray(ca.missing_ideas) && ca.missing_ideas.length > 0) {
+      lines.push(isEn ? `- Missing ideas: ${ca.missing_ideas.join('; ')}` : `- Ý còn thiếu: ${ca.missing_ideas.join('; ')}`);
+    }
+
+    if (ca.topic_relevance_comment) {
+      lines.push(isEn ? `- Relevance: ${ca.topic_relevance_comment}` : `- Mức độ bám đề: ${ca.topic_relevance_comment}`);
+    }
+
+    if (Array.isArray(ca.expansion_suggestions) && ca.expansion_suggestions.length > 0) {
+      lines.push(isEn ? `- Ways to expand: ${ca.expansion_suggestions.join('; ')}` : `- Có thể mở rộng thêm: ${ca.expansion_suggestions.join('; ')}`);
+    }
+  }
+
+  addSection(
+    isEn ? 'Pronunciation / language errors:' : 'Lỗi phát âm / ngôn ngữ cụ thể:',
+    apiRes.errors,
+    item => {
+      const word = item.word || item.quote || '';
+      const heard = item.heard ? `${isEn ? 'heard' : 'nghe thành'} "${item.heard}"` : '';
+      const expected = item.expected ? `${isEn ? 'expected' : 'đúng là'} "${item.expected}"` : '';
+      const issue = item.issue || '';
+      const suggestion = item.suggestion || '';
+      const parts = [heard, expected, issue].filter(Boolean).join('; ');
+      return `${word ? `"${word}" — ` : ''}${parts}${suggestion ? ` ${isEn ? 'Suggestion:' : 'Cách sửa:'} ${suggestion}` : ''}`;
+    }
+  );
+
+  if (Array.isArray(apiRes.next_practice_targets) && apiRes.next_practice_targets.length > 0) {
+    lines.push(isEn ? '\nNext practice targets:' : '\nMục tiêu luyện tiếp:');
+    apiRes.next_practice_targets.forEach((item, index) => lines.push(`${index + 1}. ${item}`));
+  }
+
+  if (apiRes.teacher_comment) {
+    lines.push(isEn ? `\nTeacher comment:\n${apiRes.teacher_comment}` : `\nNhận xét của giáo viên:\n${apiRes.teacher_comment}`);
+  } else if (Array.isArray(apiRes.feedback) && apiRes.feedback.length > 0) {
+    lines.push(isEn ? '\nOverall feedback:' : '\nNhận xét tổng quát:');
+    apiRes.feedback.forEach((item, index) => lines.push(`${index + 1}. ${item}`));
+  } else if (typeof apiRes.feedback === 'string' && apiRes.feedback.trim()) {
+    lines.push(apiRes.feedback.trim());
+  }
+
+  return lines.join('\n').trim();
+};
+
 const evaluateWithOpenAI = async (transcript, expectedText, level, mode, lang, requirement = '') => {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY; // Use VITE_OPENAI_API_KEY in .env
-  const systemPrompt = `Bạn là một giáo viên tiếng Trung giàu kinh nghiệm, chuyên dạy phát âm và khẩu ngữ cho người học ngoại ngữ. Hãy chấm điểm và phản hồi phần nói của học viên theo phong cách tự nhiên, công bằng và hướng dẫn — như một giáo viên thực thụ, KHÔNG như một hệ thống speech-recognition máy móc.
+
+  const systemPrompt = `Bạn là một giáo viên tiếng Trung giàu kinh nghiệm, chuyên dạy phát âm và khẩu ngữ cho người học ngoại ngữ. Hãy chấm điểm phần nói của học viên như một giáo viên thật: công bằng, cụ thể, có bằng chứng từ chính bài nói, không nhận xét chung chung.
 
 Ngôn ngữ phản hồi: ${lang === 'en' ? 'English' : 'Vietnamese'}.
 Task Mode: ${mode} (vocab = WORD MODE, sentence = SENTENCE MODE, topic = TOPIC MODE, free = FREE MODE).
 HSK target: ${level}.
-Yêu cầu chủ đề: "${requirement || 'None'}". Mẫu đáp án: "${expectedText || 'None'}". Bản ghi lời nói: "${transcript}"
+Yêu cầu chủ đề: "${requirement || 'None'}".
+Mẫu/đáp án tham chiếu: "${expectedText || 'None'}".
+Bản ghi lời nói của học viên: "${transcript}"
 
-Tóm tắt quy tắc chấm (ưu tiên):
-- Ưu tiên độ tự nhiên, lưu loát, ngữ điệu và khả năng hiểu của người bản xứ.
-- Không trừ nặng chỉ vì vài thanh điệu hơi mềm hoặc connected speech trong câu dài.
-- WORD MODE: chấm kỹ phụ âm, vận mẫu, thanh điệu nhưng vẫn khoan dung với accent học viên.
-- SENTENCE/TOPIC/FREE MODE: ưu tiên naturalness và comprehensibility hơn là tách từng chữ.
+NGUYÊN TẮC BẮT BUỘC:
+1. Không được đưa feedback chung chung như "phát âm khá tốt", "cần luyện thêm", "từ vựng ổn" nếu không trích dẫn bằng chứng.
+2. Mọi nhận xét phải bám vào transcript. Khi khen hoặc sửa, hãy trích dẫn đúng từ/cụm/câu học viên đã nói.
+3. Nếu transcript quá ngắn, phải nói rõ bài nói ngắn ở chỗ nào và gợi ý học viên mở rộng cụ thể.
+4. Nếu mode là vocab/sentence, so sánh với mẫu tham chiếu và chỉ ra học viên nói đúng/sai phần nào.
+5. Nếu mode là topic, phân tích học viên đã trả lời được những ý nào trong yêu cầu và còn thiếu ý nào.
+6. Nếu mode là free, xác định ý chính học viên đã nói và gợi ý 2-3 cách mở rộng bài nói.
+7. Với tiếng Trung, đánh giá phát âm theo mức độ người bản xứ có hiểu được không. Không trừ quá nặng vì accent nhẹ hoặc connected speech tự nhiên.
+8. WORD MODE: chấm kỹ phụ âm, vận mẫu, thanh điệu.
+9. SENTENCE/TOPIC/FREE MODE: ưu tiên độ dễ hiểu, nhịp điệu tự nhiên, lưu loát và mạch lạc; không bắt học viên đọc chậm từng chữ.
+10. Chỉ liệt kê lỗi đáng chú ý. Không bịa lỗi nếu transcript không đủ bằng chứng.
 
-Tiêu chí (thang 0-10): pronunciation_accuracy, fluency, naturalness, intonation_rhythm, comprehensibility.
+TIÊU CHÍ ĐIỂM 0-10:
+- pronunciation_accuracy
+- fluency
+- naturalness
+- intonation_rhythm
+- comprehensibility
+- grammar
+- vocabulary
+- topic_relevance
+- idea_development
 
-Quy tắc trả kết quả:
-- Trả chỉ một duy nhất một đối tượng JSON (không kèm lời giải thích) theo định dạng dưới đây.
-- Nếu có lỗi phát âm cụ thể, liệt kê trong trường "errors" với word, issue, severity, suggestion. Chỉ liệt kê lỗi đáng chú ý (không liệt kê những tiny connected-speech thay đổi tự nhiên).
+QUY TẮC TRẢ KẾT QUẢ:
+Chỉ trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.
 
-Đầu ra JSON bắt buộc (ví dụ và schema):
+JSON schema bắt buộc:
 {
-  "overall_score": 8.6,
-  "pronunciation_accuracy": 8.2,
-  "fluency": 9.0,
-  "naturalness": 8.8,
-  "intonation_rhythm": 8.5,
-  "comprehensibility": 9.1,
-  "severity": "minor", // minor|moderate|major
-  "feedback": [
-    "Phát âm nhìn chung tự nhiên và dễ hiểu.",
-    "Có vài thanh điệu hơi mềm trong câu dài nhưng vẫn rất tự nhiên.",
-    "Độ lưu loát và rhythm khá tốt.",
-    "Không cần đọc chậm hơn, hãy tiếp tục giữ nhịp nói tự nhiên."
+  "overall_score": 8.2,
+  "level": "Khá",
+  "estimated_hsk": "HSK2",
+  "pronunciation_accuracy": 8.0,
+  "fluency": 8.2,
+  "naturalness": 8.1,
+  "intonation_rhythm": 7.8,
+  "comprehensibility": 8.5,
+  "grammar": 7.9,
+  "vocabulary": 7.8,
+  "topic_relevance": 8.0,
+  "idea_development": 7.5,
+  "severity": "minor",
+  "spoken_transcript": "trích lại chính xác câu học viên đã nói",
+  "strengths": [
+    {
+      "quote": "trích cụm/câu học viên nói tốt",
+      "reason": "giải thích cụ thể vì sao tốt"
+    }
   ],
+  "weaknesses": [
+    {
+      "quote": "trích cụm/câu cần sửa",
+      "issue": "vấn đề cụ thể",
+      "suggestion": "cách sửa cụ thể, dễ làm"
+    }
+  ],
+  "content_analysis": {
+    "main_ideas_detected": ["ý học viên đã nói được"],
+    "missing_ideas": ["ý còn thiếu so với yêu cầu/chủ đề"],
+    "topic_relevance_comment": "nhận xét cụ thể về mức độ bám đề",
+    "expansion_suggestions": ["cách mở rộng bài nói cụ thể"]
+  },
   "errors": [
-    { "word": "去", "issue": "Âm ü chưa đủ tròn môi", "severity": "minor", "suggestion": "Chu môi nhiều hơn và giữ lưỡi hướng về phía trước." }
-  ]
+    {
+      "word": "từ/cụm có lỗi",
+      "heard": "nếu có thể suy đoán học viên nói nghe thành gì",
+      "expected": "cách nói đúng hoặc âm đúng",
+      "issue": "lỗi cụ thể: phụ âm/vận mẫu/thanh điệu/ngữ pháp/từ vựng",
+      "severity": "minor|moderate|major",
+      "suggestion": "cách sửa cụ thể"
+    }
+  ],
+  "next_practice_targets": [
+    "mục tiêu luyện tập cụ thể 1",
+    "mục tiêu luyện tập cụ thể 2"
+  ],
+  "teacher_comment": "Một đoạn nhận xét 4-6 câu, thân thiện, có nhắc đến chi tiết thật trong bài nói của học viên."
 }
 
-Luôn tuân thủ phong cách: thân thiện, khuyến khích, dễ hiểu cho người học ngoại ngữ. `;
-  // Use OpenAI Chat Completions to produce the JSON grading object
+Lưu ý:
+- Nếu không chắc lỗi phát âm, đừng bịa lỗi. Hãy nói transcript không đủ rõ để kết luận.
+- teacher_comment vẫn phải nhắc tới ít nhất một cụm/câu cụ thể từ transcript.
+- Với bài nói tốt, vẫn phải nói rõ tốt ở cụm nào, vì sao tốt, và bước tiếp theo là gì.`;
+
   if (!apiKey) {
     console.warn('OpenAI API key is missing. Falling back to local evaluation.');
     return null;
@@ -1051,7 +1301,7 @@ Luôn tuân thủ phong cách: thân thiện, khuyến khích, dễ hiểu cho n
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: 'Please evaluate the transcript and return only a JSON object exactly matching the schema described in the system prompt.' }
+    { role: 'user', content: 'Evaluate the learner speech. Return only one valid JSON object following the schema exactly. Do not include markdown.' }
   ];
 
   try {
@@ -1061,7 +1311,7 @@ Luôn tuân thủ phong cách: thân thiện, khuyến khích, dễ hiểu cho n
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({ model: 'gpt-4.1-nano', messages, temperature: 0 })
+      body: JSON.stringify({ model: 'gpt-4.1-nano', messages, temperature: 0.2 })
     });
 
     if (!res.ok) {
@@ -1314,8 +1564,8 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
   const playModelAudio = (textRaw, speedMode = 'normal') => {
     if (!('speechSynthesis' in window)) { alert("TTS not supported in your browser."); return; }
 
-    // Đổi $1 (Hán tự) thành $2 (Pinyin) để TTS đọc đúng phần phiên âm đã chỉ định
-    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$2');
+    // Đọc mẫu bằng Hán tự: chỉ bỏ phần chú thích pinyin trong cú pháp [汉字|pinyin]
+    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$1');
     setIsPlayingModel(speedMode);
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -1387,7 +1637,7 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
               score: '1.0',
               level: lang === 'en' ? 'Invalid Language' : 'Sai Ngôn Ngữ',
               criteria: { [t('cPronunciation')]: '1.0', [t('cFluency')]: '1.0' },
-              feedback: lang === 'en' 
+              feedback: lang === 'en'
                 ? `⚠️ ERROR: You spoke ${langViolation.language} instead of Mandarin Chinese! Please repeat in Mandarin.`
                 : `⚠️ LỖI: Bạn nói tiếng ${langViolation.language} thay vì tiếng Trung Quốc! Vui lòng nhập lại bằng tiếng Trung.`
             };
@@ -1402,7 +1652,7 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
                   [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
                   [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
                 },
-                feedback: Array.isArray(apiRes.feedback) ? apiRes.feedback.join('\n') : (apiRes.feedback || "")
+                feedback: buildEvidenceBasedFeedbackText(apiRes, lang)
               };
               if (type === 'topic') {
                 finalResult.criteria[t('cGrammar')] = (apiRes.grammar || "0.0").toString();
@@ -1591,8 +1841,8 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
   const playModelAudio = (textRaw, speedMode = 'normal') => {
     if (!('speechSynthesis' in window)) { return; }
 
-    // Đổi $1 (Hán tự) thành $2 (Pinyin) để TTS đọc đúng phần phiên âm đã chỉ định
-    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$2');
+    // Đọc mẫu bằng Hán tự: chỉ bỏ phần chú thích pinyin trong cú pháp [汉字|pinyin]
+    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$1');
     setIsPlayingModel(speedMode);
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
@@ -1646,26 +1896,26 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
               score: '1.0',
               level: lang === 'en' ? 'Wrong Language' : 'Sai Ngôn Ngữ',
               criteria: { [t('cPronunciation')]: '1.0', [t('cFluency')]: '1.0', [t('cContentAccuracy')]: '1.0' },
-              feedback: lang === 'en' 
+              feedback: lang === 'en'
                 ? `⚠️ ERROR: You spoke ${langViolation.language} instead of Mandarin Chinese! The target was:\n${currentItem.cn} (${currentItem.pinyin})\n\nPlease try again in Mandarin.`
                 : `⚠️ LỖI: Bạn nói tiếng ${langViolation.language} thay vì tiếng Trung Quốc! Bạn cần nói:\n${currentItem.cn} (${currentItem.pinyin})\n\nVui lòng thử lại bằng tiếng Trung.`
             };
           } else {
             const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
-          if (apiRes) {
-            res = {
-              score: apiRes.overall_score || apiRes.score || "0.0",
-              level: apiRes.level,
-              criteria: {
-                [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
-                [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
-                [t('cContentAccuracy')]: (apiRes.comprehensibility || apiRes.accuracy_score || "0.0").toString()
-              },
-              feedback: Array.isArray(apiRes.feedback) ? apiRes.feedback.join('\n') : (apiRes.feedback || "")
-            };
-          } else {
-            // Fallback an toàn nếu API quá tải
-            res = generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t);
+            if (apiRes) {
+              res = {
+                score: apiRes.overall_score || apiRes.score || "0.0",
+                level: apiRes.level,
+                criteria: {
+                  [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
+                  [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
+                  [t('cContentAccuracy')]: (apiRes.comprehensibility || apiRes.accuracy_score || "0.0").toString()
+                },
+                feedback: buildEvidenceBasedFeedbackText(apiRes, lang)
+              };
+            } else {
+              // Fallback an toàn nếu API quá tải
+              res = generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t);
             }
           }
         }
