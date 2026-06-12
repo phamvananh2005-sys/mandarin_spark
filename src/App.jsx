@@ -1287,43 +1287,141 @@ const buildEvidenceBasedFeedbackText = (apiRes, lang, mode = '') => {
 const evaluateWithOpenAI = async (transcript, expectedText, level, mode, lang, requirement = '') => {
   const apiKey = import.meta.env.VITE_OPENAI_API_KEY; // Use VITE_OPENAI_API_KEY in .env
 
-  const systemPrompt = `Bạn là một giáo viên tiếng Trung giàu kinh nghiệm, chuyên dạy phát âm và khẩu ngữ cho người học ngoại ngữ. Hãy chấm điểm phần nói của học viên như một giáo viên thật: công bằng, cụ thể, có bằng chứng từ chính bài nói, không nhận xét chung chung.
+  const systemPrompt = `Bạn là giáo viên tiếng Trung chuyên chấm phát âm và khẩu ngữ cho người học ngoại ngữ. Bạn phải chấm theo ĐÚNG FORMAT CỐ ĐỊNH dưới đây. Không tự đổi tiêu chí, không thêm tiêu chí mới, không bỏ tiêu chí, không đổi tên field JSON.
 
 Ngôn ngữ phản hồi: ${lang === 'en' ? 'English' : 'Vietnamese'}.
-Task Mode: ${mode} (vocab = WORD MODE, sentence = SENTENCE MODE, topic = TOPIC MODE, free = FREE MODE).
+Task Mode: ${mode} (vocab = WORD SHADOWING, sentence = SENTENCE SHADOWING, topic = TOPIC SPEAKING, free = FREE SPEAKING).
 HSK target: ${level}.
 Yêu cầu chủ đề: "${requirement || 'None'}".
 Mẫu/đáp án tham chiếu: "${expectedText || 'None'}".
 Bản ghi lời nói của học viên: "${transcript}"
 
-QUY TẮC RIÊNG CHO SHADOWING / READ ALOUD / REPEAT AFTER ME / ĐỌC NHẮC LẠI:
-Áp dụng bắt buộc khi mode là vocab hoặc sentence.
-- Mục tiêu duy nhất là đánh giá học viên đọc giống mẫu đến mức nào.
-- Chỉ đánh giá: phát âm, thanh điệu, độ chính xác từ vựng, độ lưu loát, nhịp điệu và mức độ khớp với mẫu tham chiếu.
-- Không đánh giá khả năng diễn đạt, phát triển ý, sáng tạo nội dung, độ phong phú của câu trả lời hoặc khả năng mở rộng nội dung.
-- Không yêu cầu học viên nói dài hơn, mở rộng ý, thêm lý do, thêm ví dụ, mô tả chi tiết hơn hoặc bổ sung câu mới.
-- Không nhận xét câu trả lời ngắn nếu học viên đã đọc đúng mẫu. Không trừ điểm vì câu ngắn, đơn giản hoặc không có ý mở rộng.
-- Các nhận xét bị cấm trong shadowing: "Nên nói dài hơn", "Nên mở rộng ý", "Nên thêm lý do", "Nên thêm ví dụ", "Nên mô tả chi tiết hơn", "Câu trả lời còn ngắn", "Có thể phát triển nội dung phong phú hơn" và mọi cách diễn đạt tương đương bằng tiếng Anh.
-- Nếu học viên đọc đúng mẫu, hãy xác nhận phát âm/độ lưu loát/mức độ khớp với mẫu. Không thêm gợi ý mở rộng nội dung.
-- Chỉ báo lỗi phát âm khi thực sự phát hiện lỗi rõ ràng từ transcript hoặc audio transcription.
-- Trước khi ghi một lỗi phát âm, tự kiểm tra: âm được cho là sai phải khác âm đúng; từ bị nói sai phải thực sự khác cách phát âm chuẩn.
-- Tuyệt đối không tạo lỗi mâu thuẫn như heard="shàng" và expected="shàng". Nếu heard và expected giống nhau hoặc không đủ bằng chứng, không đưa lỗi đó vào errors.
-- Trong shadowing, content_analysis phải để rỗng/null; missing_ideas và expansion_suggestions phải là mảng rỗng; idea_development không được dùng để trừ điểm.
+==================================================
+A. QUY TẮC BẮT BUỘC CHUNG
+==================================================
+1. Chỉ trả về 01 JSON object hợp lệ. Không markdown. Không giải thích ngoài JSON.
+2. Tất cả điểm là số từ 0.0 đến 10.0, được làm tròn 1 chữ số thập phân.
+3. Mọi nhận xét phải dựa trên transcript và/hoặc mẫu tham chiếu. Không bịa lỗi khi không đủ bằng chứng.
+4. Nếu transcript rỗng hoặc gần như không nhận diện được, cho overall_score tối đa 2.0.
+5. Nếu học viên nói sai ngôn ngữ, cho overall_score tối đa 1.5.
+6. Không tạo lỗi mâu thuẫn. Nếu heard và expected giống nhau sau khi chuẩn hóa, KHÔNG đưa lỗi đó vào errors.
+7. teacher_comment phải thân thiện, cụ thể, nhưng không được phá format.
 
-NGUYÊN TẮC BẮT BUỘC:
-1. Không được đưa feedback chung chung như "phát âm khá tốt", "cần luyện thêm", "từ vựng ổn" nếu không trích dẫn bằng chứng hoặc không gắn với mẫu tham chiếu.
-2. Mọi nhận xét phải bám vào transcript. Khi khen hoặc sửa, hãy trích dẫn đúng từ/cụm/câu học viên đã nói.
-3. Nếu transcript quá ngắn trong topic/free mode, phải nói rõ bài nói ngắn ở chỗ nào và gợi ý học viên mở rộng cụ thể. Không áp dụng quy tắc này cho vocab/sentence shadowing.
-4. Nếu mode là vocab/sentence, so sánh với mẫu tham chiếu và chỉ ra học viên nói đúng/sai phần nào về phát âm, thanh điệu, độ chính xác từ vựng, độ lưu loát và mức độ khớp mẫu.
-5. Nếu mode là topic, phân tích học viên đã trả lời được những ý nào trong yêu cầu và còn thiếu ý nào.
-6. Nếu mode là free, xác định ý chính học viên đã nói và gợi ý 2-3 cách mở rộng bài nói.
-7. Với tiếng Trung, đánh giá phát âm theo mức độ người bản xứ có hiểu được không. Không trừ quá nặng vì accent nhẹ hoặc connected speech tự nhiên.
-8. WORD MODE: chấm kỹ phụ âm, vận mẫu, thanh điệu.
-9. SENTENCE MODE: ưu tiên mức độ khớp mẫu, độ dễ hiểu, nhịp điệu tự nhiên và lưu loát; không bắt học viên đọc chậm từng chữ.
-10. TOPIC/FREE MODE: ưu tiên độ dễ hiểu, nhịp điệu tự nhiên, lưu loát và mạch lạc.
-11. Chỉ liệt kê lỗi đáng chú ý. Không bịa lỗi nếu transcript không đủ bằng chứng.
+==================================================
+B. FORMAT CỐ ĐỊNH CHO SHADOWING
+==================================================
+Áp dụng khi mode là vocab hoặc sentence.
 
-TIÊU CHÍ ĐIỂM 0-10:
+Shadowing KHÔNG phải là nói theo chủ đề. Shadowing chỉ là đọc nhắc lại mẫu. Vì vậy:
+- KHÔNG chấm linh động theo nội dung mở rộng.
+- KHÔNG chấm khả năng sáng tạo, phát triển ý, độ dài câu trả lời, lý do, ví dụ, mô tả thêm.
+- KHÔNG yêu cầu học viên nói dài hơn, thêm ý, thêm ví dụ, thêm lý do.
+- KHÔNG trừ điểm vì câu ngắn nếu mẫu vốn ngắn.
+- content_analysis luôn phải là:
+  {
+    "main_ideas_detected": [],
+    "missing_ideas": [],
+    "topic_relevance_comment": "",
+    "expansion_suggestions": []
+  }
+- topic_relevance luôn là 0.0.
+- idea_development luôn là 0.0.
+- grammar không phải tiêu chí chính; chỉ chấm grammar = 10.0 nếu học viên đọc đúng mẫu, hoặc giảm nhẹ nếu transcript cho thấy học viên thay đổi cấu trúc câu mẫu.
+
+B1. TIÊU CHÍ CỐ ĐỊNH CHO WORD SHADOWING / mode = vocab
+Chấm đúng 05 tiêu chí sau, theo trọng số cố định:
+1. pronunciation_accuracy: 30%
+   - phụ âm đầu / initials
+   - vận mẫu / finals
+   - âm khó: zh/ch/sh/r, j/q/x, z/c/s, ü nếu có
+2. tone_accuracy: 30%
+   - thanh 1/2/3/4/neutral
+   - thanh phải rõ khi đọc từ riêng lẻ
+3. word_accuracy: 20%
+   - học viên có đọc đúng từ mẫu không
+   - có thêm/bớt/đổi âm tiết không
+4. fluency: 10%
+   - đọc liền mạch, không ngập ngừng quá nhiều
+5. intonation_rhythm: 10%
+   - nhịp đọc tự nhiên ở cấp độ từ/cụm ngắn
+
+Cách tính bắt buộc cho vocab:
+overall_score = pronunciation_accuracy*0.30 + tone_accuracy*0.30 + word_accuracy*0.20 + fluency*0.10 + intonation_rhythm*0.10
+
+Sau khi tính:
+- naturalness = intonation_rhythm
+- comprehensibility = trung bình của pronunciation_accuracy, tone_accuracy, word_accuracy
+- vocabulary = word_accuracy
+- grammar = 10.0 nếu không có bằng chứng sai cấu trúc; nếu không chắc, để 10.0
+- topic_relevance = 0.0
+- idea_development = 0.0
+
+B2. TIÊU CHÍ CỐ ĐỊNH CHO SENTENCE SHADOWING / mode = sentence
+Chấm đúng 05 tiêu chí sau, theo trọng số cố định:
+1. pronunciation_accuracy: 25%
+   - phụ âm, vận mẫu, âm tiết khó
+2. tone_accuracy: 25%
+   - thanh điệu chính xác trong câu
+   - cho phép điều chỉnh nhẹ do nối âm và ngữ điệu tự nhiên, nhưng lỗi thanh làm đổi nghĩa phải trừ điểm
+3. sentence_accuracy: 25%
+   - mức độ khớp với mẫu
+   - có bỏ từ, thêm từ, đổi từ, đảo thứ tự không
+4. fluency: 15%
+   - đọc trôi chảy, không dừng quá lâu, không đọc rời rạc từng chữ
+5. intonation_rhythm: 10%
+   - nhịp câu tự nhiên, ngữ điệu phù hợp
+
+Cách tính bắt buộc cho sentence:
+overall_score = pronunciation_accuracy*0.25 + tone_accuracy*0.25 + sentence_accuracy*0.25 + fluency*0.15 + intonation_rhythm*0.10
+
+Sau khi tính:
+- naturalness = intonation_rhythm
+- comprehensibility = trung bình của pronunciation_accuracy, tone_accuracy, sentence_accuracy
+- vocabulary = sentence_accuracy
+- grammar = 10.0 nếu học viên giữ đúng cấu trúc mẫu; giảm nếu transcript cho thấy đổi sai cấu trúc
+- topic_relevance = 0.0
+- idea_development = 0.0
+
+B3. THANG ĐIỂM CỐ ĐỊNH CHO TỪNG TIÊU CHÍ SHADOWING
+Dùng cùng một thang cho mọi tiêu chí shadowing:
+- 9.0-10.0: Gần như chính xác; lỗi rất nhỏ, không ảnh hưởng hiểu.
+- 8.0-8.9: Tốt; có 1-2 lỗi nhỏ về âm/thanh/nhịp nhưng vẫn dễ hiểu.
+- 7.0-7.9: Đạt; có vài lỗi rõ nhưng người nghe vẫn hiểu được.
+- 6.0-6.9: Tạm; lỗi âm/thanh/nhịp xuất hiện nhiều, cần luyện lại.
+- 5.0-5.9: Yếu; nhiều lỗi làm giảm khả năng nhận diện từ/câu.
+- Dưới 5.0: Khó hiểu hoặc lệch đáng kể so với mẫu.
+
+B4. FORMAT NHẬN XÉT CỐ ĐỊNH CHO SHADOWING
+teacher_comment phải gồm đúng 4 câu:
+Câu 1: Nhận xét mức độ khớp với mẫu.
+Câu 2: Nhận xét phát âm/thanh điệu cụ thể.
+Câu 3: Nhận xét độ lưu loát/nhịp điệu.
+Câu 4: Gợi ý luyện tiếp, chỉ liên quan đến phát âm, thanh điệu, nhịp đọc hoặc độ lưu loát.
+
+weaknesses chỉ được gồm lỗi thuộc các nhóm:
+- pronunciation
+- tone
+- word_accuracy hoặc sentence_accuracy
+- fluency
+- intonation_rhythm
+
+next_practice_targets chỉ được gồm 2 mục, đúng format:
+1. "Luyện lại [âm/thanh/từ/cụm cụ thể] ..."
+2. "Đọc lại mẫu với nhịp ..."
+
+errors chỉ ghi lỗi khi có bằng chứng rõ ràng. Mỗi lỗi phải có:
+- word
+- heard
+- expected
+- issue
+- severity
+- suggestion
+
+==================================================
+C. FORMAT CỐ ĐỊNH CHO TOPIC/FREE
+==================================================
+Áp dụng khi mode là topic hoặc free.
+Chấm các tiêu chí:
 - pronunciation_accuracy
 - fluency
 - naturalness
@@ -1334,15 +1432,19 @@ TIÊU CHÍ ĐIỂM 0-10:
 - topic_relevance
 - idea_development
 
-QUY TẮC TRẢ KẾT QUẢ:
-Chỉ trả về một JSON object duy nhất, không markdown, không giải thích ngoài JSON.
+Với topic/free, có thể nhận xét về độ dài, thiếu ý, cần mở rộng nội dung. Quy tắc này KHÔNG áp dụng cho shadowing.
 
-JSON schema bắt buộc:
+==================================================
+D. JSON SCHEMA BẮT BUỘC
+==================================================
 {
   "overall_score": 8.2,
   "level": "Khá",
   "estimated_hsk": "HSK2",
   "pronunciation_accuracy": 8.0,
+  "tone_accuracy": 8.0,
+  "word_accuracy": 8.0,
+  "sentence_accuracy": 8.0,
   "fluency": 8.2,
   "naturalness": 8.1,
   "intonation_rhythm": 7.8,
@@ -1367,17 +1469,17 @@ JSON schema bắt buộc:
     }
   ],
   "content_analysis": {
-    "main_ideas_detected": ["ý học viên đã nói được"],
-    "missing_ideas": ["ý còn thiếu so với yêu cầu/chủ đề"],
-    "topic_relevance_comment": "nhận xét cụ thể về mức độ bám đề",
-    "expansion_suggestions": ["cách mở rộng bài nói cụ thể"]
+    "main_ideas_detected": [],
+    "missing_ideas": [],
+    "topic_relevance_comment": "",
+    "expansion_suggestions": []
   },
   "errors": [
     {
       "word": "từ/cụm có lỗi",
       "heard": "nếu có thể suy đoán học viên nói nghe thành gì",
       "expected": "cách nói đúng hoặc âm đúng",
-      "issue": "lỗi cụ thể: phụ âm/vận mẫu/thanh điệu/ngữ pháp/từ vựng",
+      "issue": "pronunciation|tone|word_accuracy|sentence_accuracy|fluency|intonation_rhythm|grammar|vocabulary",
       "severity": "minor|moderate|major",
       "suggestion": "cách sửa cụ thể"
     }
@@ -1386,15 +1488,22 @@ JSON schema bắt buộc:
     "mục tiêu luyện tập cụ thể 1",
     "mục tiêu luyện tập cụ thể 2"
   ],
-  "teacher_comment": "Một đoạn nhận xét 4-6 câu, thân thiện, có nhắc đến chi tiết thật trong bài nói của học viên."
+  "teacher_comment": "Nhận xét đúng format yêu cầu."
 }
 
-Lưu ý:
-- Nếu không chắc lỗi phát âm, đừng bịa lỗi. Hãy nói transcript không đủ rõ để kết luận.
-- Trong vocab/sentence shadowing, không đưa nhận xét về độ ngắn, thiếu ý, thiếu ví dụ hoặc cần mở rộng nội dung.
-- Trong vocab/sentence shadowing, chỉ đưa errors khi heard và expected thực sự khác nhau; nếu không có lỗi rõ ràng, để errors rỗng và ghi nhận phát âm đạt yêu cầu.
-- teacher_comment vẫn phải nhắc tới ít nhất một cụm/câu cụ thể từ transcript hoặc mẫu tham chiếu.
-- Với bài nói tốt, vẫn phải nói rõ tốt ở cụm nào/vì sao tốt. Trong shadowing, bước tiếp theo chỉ được là luyện phát âm, thanh điệu, nhịp điệu hoặc độ lưu loát, không phải mở rộng nội dung.`;
+==================================================
+E. KIỂM TRA CUỐI TRƯỚC KHI TRẢ JSON
+==================================================
+Nếu mode là vocab hoặc sentence, tự kiểm tra:
+1. teacher_comment có đúng 4 câu không?
+2. Có câu nào yêu cầu mở rộng nội dung, nói dài hơn, thêm lý do, thêm ví dụ không? Nếu có, xóa.
+3. content_analysis đã rỗng đúng format chưa?
+4. topic_relevance và idea_development đã là 0.0 chưa?
+5. next_practice_targets có đúng 2 mục và chỉ liên quan phát âm/thanh/nhịp/lưu loát không?
+6. errors có lỗi nào heard giống expected không? Nếu có, xóa.
+7. overall_score đã tính theo đúng trọng số cố định chưa?
+
+Chỉ sau khi kiểm tra xong mới trả JSON.`;
 
   if (!apiKey) {
     console.warn('OpenAI API key is missing. Falling back to local evaluation.');
@@ -2010,8 +2119,16 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
                 level: apiRes.level,
                 criteria: {
                   [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
+                  [lang === 'en' ? 'Tone Accuracy' : 'Độ chính xác thanh điệu']: (apiRes.tone_accuracy || "0.0").toString(),
+                  [type === 'vocab'
+                    ? (lang === 'en' ? 'Word Accuracy' : 'Độ chính xác từ')
+                    : (lang === 'en' ? 'Sentence Accuracy' : 'Độ khớp câu mẫu')
+                  ]: (type === 'vocab'
+                    ? (apiRes.word_accuracy || apiRes.comprehensibility || "0.0")
+                    : (apiRes.sentence_accuracy || apiRes.comprehensibility || "0.0")
+                  ).toString(),
                   [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
-                  [t('cContentAccuracy')]: (apiRes.comprehensibility || apiRes.accuracy_score || "0.0").toString()
+                  [lang === 'en' ? 'Intonation & Rhythm' : 'Ngữ điệu & nhịp đọc']: (apiRes.intonation_rhythm || "0.0").toString()
                 },
                 feedback: buildEvidenceBasedFeedbackText(apiRes, lang, type)
               };
