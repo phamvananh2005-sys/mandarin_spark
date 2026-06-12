@@ -1102,12 +1102,97 @@ function generateGradingResultFallback(transcript, expectedRawText, level, mode,
     level: lang === 'en' ? (finalScore > 8 ? 'Good' : 'Needs Practice') : (finalScore > 8 ? 'Giỏi' : 'Cần luyện thêm'),
     estimated_hsk: estimatedLevel,
     criteria: criteriaObj,
-    feedback: lang === 'en' ? "This is a basic evaluation. Please connect to internet for full AI Analysis." : "Đây là đánh giá cơ bản. Hãy kết nối mạng để AI Phân tích chi tiết lỗi ngữ pháp và phát âm."
+    feedback: isShadowingMode(mode)
+      ? (lang === 'en'
+          ? "Basic shadowing evaluation: the score reflects how closely the learner matched the sample in pronunciation, tones, vocabulary accuracy, and fluency. No content expansion is required in this mode."
+          : "Đánh giá shadowing cơ bản: điểm số phản ánh mức độ học viên đọc khớp với câu mẫu về phát âm, thanh điệu, độ chính xác từ vựng và độ lưu loát. Chế độ này không yêu cầu mở rộng nội dung.")
+      : (lang === 'en' ? "This is a basic evaluation. Please connect to internet for full AI Analysis." : "Đây là đánh giá cơ bản. Hãy kết nối mạng để AI Phân tích chi tiết lỗi ngữ pháp và phát âm.")
   };
 }
 
-const buildEvidenceBasedFeedbackText = (apiRes, lang) => {
+
+const isShadowingMode = (mode) => mode === 'vocab' || mode === 'sentence';
+
+const normalizePronunciationEvidence = (value) => String(value || '')
+  .trim()
+  .toLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/g, (ch) => ({
+    'ā': 'a', 'á': 'a', 'ǎ': 'a', 'à': 'a',
+    'ē': 'e', 'é': 'e', 'ě': 'e', 'è': 'e',
+    'ī': 'i', 'í': 'i', 'ǐ': 'i', 'ì': 'i',
+    'ō': 'o', 'ó': 'o', 'ǒ': 'o', 'ò': 'o',
+    'ū': 'u', 'ú': 'u', 'ǔ': 'u', 'ù': 'u',
+    'ǖ': 'u', 'ǘ': 'u', 'ǚ': 'u', 'ǜ': 'u', 'ü': 'u'
+  }[ch] || ch))
+  .replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+
+const SHADOWING_FORBIDDEN_FEEDBACK_PATTERNS = [
+  /nên\s+nói\s+dài\s+hơn/i,
+  /nên\s+mở\s+rộng\s+ý/i,
+  /nên\s+thêm\s+lý\s+do/i,
+  /nên\s+thêm\s+ví\s+dụ/i,
+  /nên\s+mô\s+tả\s+chi\s+tiết\s+hơn/i,
+  /câu\s+trả\s+lời\s+còn\s+ngắn/i,
+  /phát\s+triển\s+nội\s+dung\s+phong\s+phú\s+hơn/i,
+  /say\s+more/i,
+  /speak\s+longer/i,
+  /expand\s+(your\s+)?idea/i,
+  /add\s+(a\s+)?reason/i,
+  /add\s+(an\s+)?example/i,
+  /describe\s+in\s+more\s+detail/i,
+  /too\s+short/i,
+  /develop\s+(the\s+)?content/i,
+  /more\s+details/i
+];
+
+const containsShadowingForbiddenFeedback = (value) => {
+  const text = String(value || '');
+  return SHADOWING_FORBIDDEN_FEEDBACK_PATTERNS.some(pattern => pattern.test(text));
+};
+
+const sanitizeShadowingApiResult = (apiRes, lang) => {
+  if (!apiRes || typeof apiRes !== 'object') return apiRes;
+  const clean = { ...apiRes };
+
+  const filterForbiddenItems = (items) => Array.isArray(items)
+    ? items.filter(item => !containsShadowingForbiddenFeedback(JSON.stringify(item)))
+    : [];
+
+  clean.weaknesses = filterForbiddenItems(clean.weaknesses);
+  clean.next_practice_targets = filterForbiddenItems(clean.next_practice_targets)
+    .filter(item => /phát âm|thanh điệu|âm|nhịp|lưu loát|pronunciation|tone|sound|rhythm|fluency|accuracy/i.test(String(item || '')));
+
+  clean.content_analysis = null;
+
+  clean.errors = Array.isArray(clean.errors)
+    ? clean.errors.filter(error => {
+        const heard = normalizePronunciationEvidence(error?.heard);
+        const expected = normalizePronunciationEvidence(error?.expected);
+        if (heard && expected && heard === expected) return false;
+        if (containsShadowingForbiddenFeedback(JSON.stringify(error))) return false;
+        return Boolean(error?.word || error?.heard || error?.expected || error?.issue);
+      })
+    : [];
+
+  if (containsShadowingForbiddenFeedback(clean.teacher_comment)) {
+    clean.teacher_comment = '';
+  }
+
+  if (!clean.errors.length && (!clean.weaknesses || !clean.weaknesses.length)) {
+    clean.teacher_comment = lang === 'en'
+      ? 'The pronunciation is acceptable based on the recognized speech. The learner matched the sample well enough, with no clear pronunciation error detected. Keep focusing on accurate tones, natural rhythm, and smooth delivery when repeating the model sentence.'
+      : 'Phát âm đạt yêu cầu dựa trên phần hệ thống nhận diện được. Học viên đã đọc khá khớp với câu mẫu và không phát hiện lỗi phát âm rõ ràng. Tiếp tục giữ thanh điệu chính xác, nhịp đọc tự nhiên và độ lưu loát khi nhắc lại câu mẫu.';
+  }
+
+  return clean;
+};
+
+const buildEvidenceBasedFeedbackText = (apiRes, lang, mode = '') => {
   const isEn = lang === 'en';
+  const shadowing = isShadowingMode(mode);
+  apiRes = shadowing ? sanitizeShadowingApiResult(apiRes, lang) : apiRes;
   const lines = [];
 
   const addSection = (title, items, formatter) => {
@@ -1147,7 +1232,7 @@ const buildEvidenceBasedFeedbackText = (apiRes, lang) => {
     }
   );
 
-  if (apiRes.content_analysis) {
+  if (!shadowing && apiRes.content_analysis) {
     const ca = apiRes.content_analysis;
     lines.push(isEn ? '\nContent analysis:' : '\nPhân tích nội dung:');
 
@@ -1182,7 +1267,7 @@ const buildEvidenceBasedFeedbackText = (apiRes, lang) => {
     }
   );
 
-  if (Array.isArray(apiRes.next_practice_targets) && apiRes.next_practice_targets.length > 0) {
+  if (!shadowing && Array.isArray(apiRes.next_practice_targets) && apiRes.next_practice_targets.length > 0) {
     lines.push(isEn ? '\nNext practice targets:' : '\nMục tiêu luyện tiếp:');
     apiRes.next_practice_targets.forEach((item, index) => lines.push(`${index + 1}. ${item}`));
   }
@@ -1211,17 +1296,32 @@ Yêu cầu chủ đề: "${requirement || 'None'}".
 Mẫu/đáp án tham chiếu: "${expectedText || 'None'}".
 Bản ghi lời nói của học viên: "${transcript}"
 
+QUY TẮC RIÊNG CHO SHADOWING / READ ALOUD / REPEAT AFTER ME / ĐỌC NHẮC LẠI:
+Áp dụng bắt buộc khi mode là vocab hoặc sentence.
+- Mục tiêu duy nhất là đánh giá học viên đọc giống mẫu đến mức nào.
+- Chỉ đánh giá: phát âm, thanh điệu, độ chính xác từ vựng, độ lưu loát, nhịp điệu và mức độ khớp với mẫu tham chiếu.
+- Không đánh giá khả năng diễn đạt, phát triển ý, sáng tạo nội dung, độ phong phú của câu trả lời hoặc khả năng mở rộng nội dung.
+- Không yêu cầu học viên nói dài hơn, mở rộng ý, thêm lý do, thêm ví dụ, mô tả chi tiết hơn hoặc bổ sung câu mới.
+- Không nhận xét câu trả lời ngắn nếu học viên đã đọc đúng mẫu. Không trừ điểm vì câu ngắn, đơn giản hoặc không có ý mở rộng.
+- Các nhận xét bị cấm trong shadowing: "Nên nói dài hơn", "Nên mở rộng ý", "Nên thêm lý do", "Nên thêm ví dụ", "Nên mô tả chi tiết hơn", "Câu trả lời còn ngắn", "Có thể phát triển nội dung phong phú hơn" và mọi cách diễn đạt tương đương bằng tiếng Anh.
+- Nếu học viên đọc đúng mẫu, hãy xác nhận phát âm/độ lưu loát/mức độ khớp với mẫu. Không thêm gợi ý mở rộng nội dung.
+- Chỉ báo lỗi phát âm khi thực sự phát hiện lỗi rõ ràng từ transcript hoặc audio transcription.
+- Trước khi ghi một lỗi phát âm, tự kiểm tra: âm được cho là sai phải khác âm đúng; từ bị nói sai phải thực sự khác cách phát âm chuẩn.
+- Tuyệt đối không tạo lỗi mâu thuẫn như heard="shàng" và expected="shàng". Nếu heard và expected giống nhau hoặc không đủ bằng chứng, không đưa lỗi đó vào errors.
+- Trong shadowing, content_analysis phải để rỗng/null; missing_ideas và expansion_suggestions phải là mảng rỗng; idea_development không được dùng để trừ điểm.
+
 NGUYÊN TẮC BẮT BUỘC:
-1. Không được đưa feedback chung chung như "phát âm khá tốt", "cần luyện thêm", "từ vựng ổn" nếu không trích dẫn bằng chứng.
+1. Không được đưa feedback chung chung như "phát âm khá tốt", "cần luyện thêm", "từ vựng ổn" nếu không trích dẫn bằng chứng hoặc không gắn với mẫu tham chiếu.
 2. Mọi nhận xét phải bám vào transcript. Khi khen hoặc sửa, hãy trích dẫn đúng từ/cụm/câu học viên đã nói.
-3. Nếu transcript quá ngắn, phải nói rõ bài nói ngắn ở chỗ nào và gợi ý học viên mở rộng cụ thể.
-4. Nếu mode là vocab/sentence, so sánh với mẫu tham chiếu và chỉ ra học viên nói đúng/sai phần nào.
+3. Nếu transcript quá ngắn trong topic/free mode, phải nói rõ bài nói ngắn ở chỗ nào và gợi ý học viên mở rộng cụ thể. Không áp dụng quy tắc này cho vocab/sentence shadowing.
+4. Nếu mode là vocab/sentence, so sánh với mẫu tham chiếu và chỉ ra học viên nói đúng/sai phần nào về phát âm, thanh điệu, độ chính xác từ vựng, độ lưu loát và mức độ khớp mẫu.
 5. Nếu mode là topic, phân tích học viên đã trả lời được những ý nào trong yêu cầu và còn thiếu ý nào.
 6. Nếu mode là free, xác định ý chính học viên đã nói và gợi ý 2-3 cách mở rộng bài nói.
 7. Với tiếng Trung, đánh giá phát âm theo mức độ người bản xứ có hiểu được không. Không trừ quá nặng vì accent nhẹ hoặc connected speech tự nhiên.
 8. WORD MODE: chấm kỹ phụ âm, vận mẫu, thanh điệu.
-9. SENTENCE/TOPIC/FREE MODE: ưu tiên độ dễ hiểu, nhịp điệu tự nhiên, lưu loát và mạch lạc; không bắt học viên đọc chậm từng chữ.
-10. Chỉ liệt kê lỗi đáng chú ý. Không bịa lỗi nếu transcript không đủ bằng chứng.
+9. SENTENCE MODE: ưu tiên mức độ khớp mẫu, độ dễ hiểu, nhịp điệu tự nhiên và lưu loát; không bắt học viên đọc chậm từng chữ.
+10. TOPIC/FREE MODE: ưu tiên độ dễ hiểu, nhịp điệu tự nhiên, lưu loát và mạch lạc.
+11. Chỉ liệt kê lỗi đáng chú ý. Không bịa lỗi nếu transcript không đủ bằng chứng.
 
 TIÊU CHÍ ĐIỂM 0-10:
 - pronunciation_accuracy
@@ -1291,8 +1391,10 @@ JSON schema bắt buộc:
 
 Lưu ý:
 - Nếu không chắc lỗi phát âm, đừng bịa lỗi. Hãy nói transcript không đủ rõ để kết luận.
-- teacher_comment vẫn phải nhắc tới ít nhất một cụm/câu cụ thể từ transcript.
-- Với bài nói tốt, vẫn phải nói rõ tốt ở cụm nào, vì sao tốt, và bước tiếp theo là gì.`;
+- Trong vocab/sentence shadowing, không đưa nhận xét về độ ngắn, thiếu ý, thiếu ví dụ hoặc cần mở rộng nội dung.
+- Trong vocab/sentence shadowing, chỉ đưa errors khi heard và expected thực sự khác nhau; nếu không có lỗi rõ ràng, để errors rỗng và ghi nhận phát âm đạt yêu cầu.
+- teacher_comment vẫn phải nhắc tới ít nhất một cụm/câu cụ thể từ transcript hoặc mẫu tham chiếu.
+- Với bài nói tốt, vẫn phải nói rõ tốt ở cụm nào/vì sao tốt. Trong shadowing, bước tiếp theo chỉ được là luyện phát âm, thanh điệu, nhịp điệu hoặc độ lưu loát, không phải mở rộng nội dung.`;
 
   if (!apiKey) {
     console.warn('OpenAI API key is missing. Falling back to local evaluation.');
@@ -1652,7 +1754,7 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
                   [t('cPronunciation')]: (apiRes.pronunciation_accuracy || apiRes.pronunciation_score || "0.0").toString(),
                   [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
                 },
-                feedback: buildEvidenceBasedFeedbackText(apiRes, lang)
+                feedback: buildEvidenceBasedFeedbackText(apiRes, lang, type)
               };
               if (type === 'topic') {
                 finalResult.criteria[t('cGrammar')] = (apiRes.grammar || "0.0").toString();
@@ -1911,7 +2013,7 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
                   [t('cFluency')]: (apiRes.fluency || apiRes.fluency_score || "0.0").toString(),
                   [t('cContentAccuracy')]: (apiRes.comprehensibility || apiRes.accuracy_score || "0.0").toString()
                 },
-                feedback: buildEvidenceBasedFeedbackText(apiRes, lang)
+                feedback: buildEvidenceBasedFeedbackText(apiRes, lang, type)
               };
             } else {
               // Fallback an toàn nếu API quá tải
