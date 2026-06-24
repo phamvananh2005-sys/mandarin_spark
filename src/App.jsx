@@ -148,7 +148,7 @@ const dict = {
     analyzedBy: "Chấm điểm AI",
     student: "Học Viên",
     originalAudio: "Bản ghi âm gốc:",
-    avgScore: "Điểm trung bình / 5",
+    avgScore: "Điểm tổng / 10",
     rank: "XẾP LOẠI:",
     estimatedLevel: "TRÌNH ĐỘ TƯƠNG ĐƯƠNG:",
     systemAnalysis: "Nhận xét và góp ý từ hệ thống AI:",
@@ -229,7 +229,7 @@ const dict = {
     analyzedBy: "AI Grading",
     student: "Student",
     originalAudio: "Original Recording:",
-    avgScore: "Average Score / 5",
+    avgScore: "Total Score / 10",
     rank: "RANK:",
     estimatedLevel: "ESTIMATED LEVEL:",
     systemAnalysis: "Feedback and advice from AI Teacher:",
@@ -1050,164 +1050,266 @@ const getTaskTypeLabel = (mode) => {
   return 'Nói tự do';
 };
 
-const clampScore5 = (value) => Math.min(5.0, Math.max(1.0, parseFloat(value) || 1.0));
-const roundScore5 = (value) => Number(clampScore5(value).toFixed(1));
 
-const score5ToRank = (score, lang = 'vi') => {
-  const n = parseFloat(score) || 1;
-  if (lang === 'en') {
-    if (n >= 4.6) return 'Excellent';
-    if (n >= 3.8) return 'Good';
-    if (n >= 3.0) return 'Fair';
-    return 'Needs Practice';
+const clampScore10 = (value) => Math.min(10.0, Math.max(0.0, parseFloat(value) || 0.0));
+const roundScore10 = (value) => Number(clampScore10(value).toFixed(1));
+
+const CHINESE_RUBRICS = {
+  vocab: {
+    label: 'Shadowing theo từ',
+    criteria: [
+      ['initials_finals', 'Thanh mẫu & vận mẫu', 4],
+      ['tone_accuracy', 'Thanh điệu', 3.5],
+      ['tone_sandhi', 'Biến điệu', 1],
+      ['difficult_sounds', 'Âm khó đặc trưng', 1],
+      ['naturalness', 'Độ tự nhiên', 0.5]
+    ]
+  },
+  sentence: {
+    label: 'Shadowing theo câu',
+    criteria: [
+      ['pronunciation', 'Phát âm', 2.5],
+      ['tone_accuracy', 'Thanh điệu', 3],
+      ['sandhi_intonation', 'Biến điệu & ngữ điệu', 1.5],
+      ['rhythm', 'Rhythm', 1],
+      ['similarity', 'Similarity', 2]
+    ]
+  },
+  topic: {
+    label: 'Nói theo chủ đề mẫu',
+    criteria: [
+      ['pronunciation', 'Phát âm', 2],
+      ['grammar', 'Ngữ pháp', 2],
+      ['topic_vocabulary', 'Từ vựng đúng chủ đề', 1.5],
+      ['content_completeness', 'Nội dung đủ ý', 2],
+      ['fluency', 'Trôi chảy', 1.5],
+      ['task_relevance', 'Liên quan đề bài', 1]
+    ]
+  },
+  free: {
+    label: 'Free Speaking',
+    criteria: [
+      ['pronunciation', 'Phát âm', 2.5],
+      ['fluency', 'Trôi chảy', 2.5],
+      ['grammar', 'Ngữ pháp', 2],
+      ['vocabulary', 'Từ vựng', 1.5],
+      ['idea_development', 'Phát triển ý', 1.5]
+    ]
   }
-  if (n >= 4.6) return 'Xuất sắc';
-  if (n >= 3.8) return 'Giỏi';
-  if (n >= 3.0) return 'Khá';
-  return 'Cần cố gắng';
+};
+
+const getRubricForMode = (mode) => CHINESE_RUBRICS[mode] || CHINESE_RUBRICS.free;
+
+const score10ToRank = (score, lang = 'vi') => {
+  const n = parseFloat(score) || 0;
+  if (lang === 'en') {
+    if (n >= 9) return 'Excellent';
+    if (n >= 8) return 'Good';
+    if (n >= 6) return 'Fair';
+    if (n >= 4) return 'Needs Practice';
+    return 'Needs Intensive Practice';
+  }
+  if (n >= 9) return 'Xuất sắc';
+  if (n >= 8) return 'Tốt';
+  if (n >= 6) return 'Khá';
+  if (n >= 4) return 'Cần luyện thêm';
+  return 'Cần hỗ trợ nhiều';
 };
 
 const buildCriteriaScores = (criteriaPairs) => {
   const criteria_scores = {};
-  criteriaPairs.forEach(([key, name, score]) => {
-    criteria_scores[key] = { name, score: roundScore5(score) };
+  criteriaPairs.forEach(([key, name, score, maxScore = 10]) => {
+    const safeMax = parseFloat(maxScore) || 10;
+    criteria_scores[key] = {
+      name,
+      score: Number(Math.min(safeMax, Math.max(0, parseFloat(score) || 0)).toFixed(1)),
+      max_score: safeMax
+    };
   });
   return criteria_scores;
 };
 
-const averageCriteriaScore = (criteria_scores) => {
-  const values = Object.values(criteria_scores || {})
-    .map(item => parseFloat(item?.score))
-    .filter(n => !Number.isNaN(n));
-  if (!values.length) return 1.0;
-  return roundScore5(values.reduce((sum, n) => sum + n, 0) / values.length);
+const totalCriteriaScore10 = (criteria_scores) => {
+  const values = Object.values(criteria_scores || {});
+  if (!values.length) return 0.0;
+  const total = values.reduce((sum, item) => sum + (parseFloat(item?.score) || 0), 0);
+  return roundScore10(total);
+};
+
+const makeDefaultCriteriaScores = (mode, ratio = 0.55) => {
+  const rubric = getRubricForMode(mode);
+  return buildCriteriaScores(rubric.criteria.map(([key, name, maxScore]) => [
+    key,
+    name,
+    Number((maxScore * ratio).toFixed(1)),
+    maxScore
+  ]));
 };
 
 const feedbackObjectToText = (feedback) => {
   if (!feedback) return '';
   if (typeof feedback === 'string') return feedback;
+
   const lines = [];
-  if (feedback.praise) lines.push(feedback.praise);
-  if (Array.isArray(feedback.errors_found) && feedback.errors_found.length > 0) {
-    lines.push('\nLỗi cần chú ý:');
-    feedback.errors_found.forEach((error, index) => {
-      const parts = [
-        error.error_type ? `Loại lỗi: ${error.error_type}` : '',
-        error.original ? `Câu/cụm đã nói: ${error.original}` : '',
-        error.correction ? `Sửa thành: ${error.correction}` : '',
-        error.explanation ? `Giải thích: ${error.explanation}` : ''
-      ].filter(Boolean);
-      lines.push(`${index + 1}. ${parts.join(' | ')}`);
-    });
+  if (Array.isArray(feedback.strengths) && feedback.strengths.length > 0) {
+    lines.push('Điểm mạnh');
+    feedback.strengths.forEach(item => lines.push(`✓ ${item}`));
+  } else if (feedback.praise) {
+    lines.push('Điểm mạnh');
+    lines.push(`✓ ${feedback.praise}`);
   }
-  if (feedback.native_suggestion) lines.push(`\nGợi ý nói tự nhiên hơn: ${feedback.native_suggestion}`);
+
+  if (Array.isArray(feedback.errors_found) && feedback.errors_found.length > 0) {
+    lines.push('\nLỗi cần sửa');
+    feedback.errors_found.forEach((error) => {
+      const original = error.original ? ` "${error.original}"` : '';
+      const correction = error.correction ? ` → ${error.correction}` : '';
+      const explanation = error.explanation ? ` — ${error.explanation}` : '';
+      lines.push(`✗ ${error.error_type || 'Lỗi'}${original}${correction}${explanation}`);
+    });
+  } else {
+    lines.push('\nLỗi cần sửa');
+    lines.push('Không có lỗi đáng kể được phát hiện từ transcript.');
+  }
+
+  if (Array.isArray(feedback.practice_suggestions) && feedback.practice_suggestions.length > 0) {
+    lines.push('\nGợi ý luyện tập');
+    feedback.practice_suggestions.forEach(item => lines.push(`→ ${item}`));
+  } else if (feedback.native_suggestion) {
+    lines.push('\nGợi ý luyện tập');
+    lines.push(`→ ${feedback.native_suggestion}`);
+  }
+
   return lines.join('\n').trim();
 };
 
-const normalizeChineseAssessmentResult = (raw, mode, lang = 'vi') => {
+const stripChineseMarkup = (text) => String(text || '')
+  .replace(/\[([^|]+)\|([^\]]+)\]/g, '$1')
+  .replace(/[，。！？、,.!?\s]/g, '');
+
+const estimateShadowingMatchRatio = (transcript, expectedText) => {
+  const expected = stripChineseMarkup(expectedText);
+  const heard = stripChineseMarkup(transcript);
+  if (!expected || !heard) return 0;
+  let matched = 0;
+  for (const char of heard) {
+    if (expected.includes(char)) matched += 1;
+  }
+  return Math.min(1, matched / Math.max(1, expected.length));
+};
+
+const normalizeChineseAssessmentResult = (raw, mode, lang = 'vi', context = {}) => {
   if (!raw || typeof raw !== 'object') return null;
 
-  // New JSON schema requested for the Chinese scoring engine.
-  if (raw.criteria_scores && raw.feedback) {
-    const criteria_scores = {};
-    Object.entries(raw.criteria_scores).forEach(([key, item], index) => {
-      criteria_scores[key || `criterion_${index + 1}`] = {
-        name: item?.name || `Tiêu chí ${index + 1}`,
-        score: roundScore5(item?.score)
+  const rubric = getRubricForMode(mode);
+  const criteria_scores = {};
+
+  if (raw.criteria_scores && typeof raw.criteria_scores === 'object') {
+    rubric.criteria.forEach(([key, defaultName, maxScore], index) => {
+      const item = raw.criteria_scores[key] || raw.criteria_scores[`criterion_${index + 1}`] || {};
+      const rawScore = item?.score ?? item;
+      const parsed = parseFloat(rawScore);
+
+      // Mỗi criterion.score phải là điểm đạt được trong giới hạn max_score.
+      // Nếu AI lỡ trả điểm /10 cho từng tiêu chí, quy đổi về điểm theo trọng số thay vì clamp thô.
+      let score = Number.isFinite(parsed) ? parsed : 0;
+      if (score > maxScore && score <= 10) {
+        score = (score / 10) * maxScore;
+      }
+
+      criteria_scores[key] = {
+        name: item?.name || defaultName,
+        score: Number(Math.min(maxScore, Math.max(0, score)).toFixed(1)),
+        max_score: parseFloat(item?.max_score || maxScore)
       };
     });
-    const total_score = roundScore5(raw.total_score || averageCriteriaScore(criteria_scores));
-    return {
-      ...raw,
-      total_score,
-      score: total_score.toFixed(1),
-      level: raw.level || score5ToRank(total_score, lang),
-      estimated_hsk: raw.estimated_hsk || '',
-      criteria_scores,
-      criteria: Object.fromEntries(Object.entries(criteria_scores).map(([_, item]) => [item.name, item.score.toFixed(1)])),
-      feedback: feedbackObjectToText(raw.feedback),
-      feedback_json: raw.feedback
-    };
+  } else {
+    const legacyTotal = parseFloat(raw.total_score || raw.overall_score || raw.score || 0);
+    const ratio = legacyTotal > 5 ? legacyTotal / 10 : legacyTotal > 0 ? legacyTotal / 5 : 0.45;
+    Object.assign(criteria_scores, makeDefaultCriteriaScores(mode, ratio));
   }
 
-  // Backward compatibility for any old API response that still returns 0-10 fields.
-  const to5 = (value) => roundScore5((parseFloat(value) || 0) / 2);
-  let criteria_scores;
-  if (isShadowingMode(mode)) {
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Thanh điệu & Phát âm', to5(raw.pronunciation_accuracy || raw.pronunciation_score || raw.tone_accuracy || raw.overall_score || raw.score || 2)],
-      ['criterion_2', 'Ngắt nghỉ & Nhịp điệu', to5(raw.intonation_rhythm || raw.fluency || raw.fluency_score || raw.overall_score || raw.score || 2)]
-    ]);
-  } else if (mode === 'topic') {
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Từ vựng chủ đề', to5(raw.vocabulary || raw.vocab_score || raw.comprehensibility || raw.overall_score || raw.score || 2)],
-      ['criterion_2', 'Ngữ pháp & Cấu trúc', to5(raw.grammar || raw.grammar_score || raw.overall_score || raw.score || 2)]
-    ]);
-  } else {
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Độ trôi chảy', to5(raw.fluency || raw.fluency_score || raw.overall_score || raw.score || 2)],
-      ['criterion_2', 'Ngữ cảnh & Logic', to5(raw.topic_relevance || raw.coherence || raw.comprehensibility || raw.overall_score || raw.score || 2)]
-    ]);
+  const criteriaTotal = totalCriteriaScore10(criteria_scores);
+  const rawTotal = parseFloat(raw.total_score ?? raw.overall_score ?? raw.score ?? NaN);
+
+  // Lỗi cũ: tin tuyệt đối raw.total_score khiến AI trả nhầm average 2.0/2.0 thì tổng bị rơi về 2.0,
+  // dù criteria và feedback cho thấy bài tốt. Luôn ưu tiên tổng theo rubric, chỉ dùng rawTotal nếu hợp lý.
+  let total_score = criteriaTotal;
+  if (Number.isFinite(rawTotal)) {
+    const looksLikeAverageOnSmallScale = rawTotal <= 3 && criteriaTotal >= 5;
+    const tooFarFromCriteria = Math.abs(rawTotal - criteriaTotal) > 2;
+    if (!looksLikeAverageOnSmallScale && !tooFarFromCriteria) {
+      total_score = rawTotal;
+    }
   }
-  const total_score = averageCriteriaScore(criteria_scores);
-  const feedback = {
-    praise: raw.teacher_comment || (lang === 'en' ? 'The system has completed the assessment.' : 'Hệ thống đã hoàn thành phần đánh giá bài nói của bạn.'),
-    errors_found: Array.isArray(raw.errors) ? raw.errors.map(error => ({
-      error_type: error.issue || error.error_type || 'Lỗi ngôn ngữ',
-      original: error.word || error.heard || '',
-      correction: error.expected || error.correction || '',
-      explanation: error.suggestion || error.explanation || ''
-    })) : [],
-    native_suggestion: Array.isArray(raw.next_practice_targets) ? raw.next_practice_targets.join(' ') : ''
+
+  // Guardrail cho Shadowing: nếu transcript STT khớp hoàn toàn/gần hoàn toàn câu mẫu,
+  // không để điểm tụt xuống quá thấp chỉ vì model lỡ bịa lỗi không có bằng chứng âm thanh.
+  if (isShadowingMode(mode) && context?.expectedText && context?.transcript) {
+    const ratio = estimateShadowingMatchRatio(context.transcript, context.expectedText);
+    const minGoodScore = mode === 'vocab' ? 8.0 : 7.5;
+    if (ratio >= 0.95 && total_score < minGoodScore) {
+      total_score = minGoodScore;
+    } else if (ratio >= 0.75 && total_score < 6.0) {
+      total_score = 6.0;
+    }
+  }
+
+  total_score = roundScore10(total_score);
+
+  return {
+    ...raw,
+    total_score,
+    score: total_score.toFixed(1),
+    level: raw.level || score10ToRank(total_score, lang),
+    estimated_hsk: raw.estimated_hsk || '',
+    criteria_scores,
+    criteria: Object.fromEntries(Object.entries(criteria_scores).map(([_, item]) => [
+      `${item.name} (${item.max_score}đ)`,
+      item.score.toFixed(1)
+    ])),
+    feedback: feedbackObjectToText(raw.feedback),
+    feedback_json: raw.feedback
   };
-  return normalizeChineseAssessmentResult({ total_score, criteria_scores, feedback }, mode, lang);
 };
 
 function generateGradingResultFallback(transcript, expectedRawText, level, mode, lang, t) {
   const cleanExpected = expectedRawText ? expectedRawText.replace(/\[([^|]+)\|([^\]]+)\]/g, '$1').replace(/[，。！？、\s]/g, '') : '';
   const cleanTranscript = transcript ? transcript.replace(/[，。！？、\s]/g, '') : '';
 
-  let criteria_scores;
-  let praise;
-  let nativeSuggestion;
+  let ratio = 0.45;
+  let strengths = ['Bạn đã cố gắng hoàn thành bài nói.'];
+  let practice = [];
 
   if (isShadowingMode(mode)) {
     let matchCount = 0;
     for (let char of cleanTranscript) if (cleanExpected.includes(char)) matchCount++;
-    const matchRate = Math.min(1, matchCount / Math.max(1, cleanExpected.length));
-    const accuracyScore = roundScore5(1 + matchRate * 4);
-    const rhythmScore = roundScore5(Math.min(5, accuracyScore + 0.2));
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Thanh điệu & Phát âm', accuracyScore],
-      ['criterion_2', 'Ngắt nghỉ & Nhịp điệu', rhythmScore]
-    ]);
-    praise = 'Bạn đã hoàn thành phần shadowing. Điểm số fallback chủ yếu dựa trên mức độ transcript khớp với câu mẫu, chưa thay thế được hệ thống Pronunciation Assessment chuyên sâu.';
-    nativeSuggestion = 'Hãy nghe lại câu mẫu và đọc theo từng cụm nghĩa ngắn, chú ý thanh điệu và nhịp ngắt tự nhiên.';
+    ratio = Math.min(1, Math.max(0.2, matchCount / Math.max(1, cleanExpected.length)));
+    strengths = ratio >= 0.8
+      ? ['Đọc đúng phần lớn nội dung mẫu.', 'Người nghe có thể hiểu dễ dàng.']
+      : ['Người nghe vẫn nhận ra được một phần nội dung chính.'];
+    practice = mode === 'vocab'
+      ? ['Luyện thanh điệu riêng trước khi tăng tốc độ.', 'Ôn các cặp âm zh/z, ch/c, sh/s, j/q/x.']
+      : ['Shadowing theo cụm ngắn thay vì đọc từng từ rời rạc.', 'Đánh dấu thanh điệu và cụm ngắt trước khi nói.'];
   } else if (mode === 'topic') {
-    const lengthScore = cleanTranscript.length < 10 ? 2.0 : cleanTranscript.length < 30 ? 3.0 : cleanTranscript.length < 80 ? 4.0 : 4.5;
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Từ vựng chủ đề', lengthScore],
-      ['criterion_2', 'Ngữ pháp & Cấu trúc', Math.max(1, lengthScore - 0.3)]
-    ]);
-    praise = 'Bạn đã có phần trả lời theo chủ đề. Hệ thống fallback đánh giá sơ bộ dựa trên độ dài và mức độ nhận diện được của transcript.';
-    nativeSuggestion = 'Có thể dùng thêm các cụm như 我觉得 (wǒ juéde - tôi nghĩ rằng), 因为...所以... (yīnwèi... suǒyǐ... - vì... nên...) để bài nói rõ ý hơn.';
+    ratio = cleanTranscript.length < 10 ? 0.35 : cleanTranscript.length < 30 ? 0.55 : cleanTranscript.length < 80 ? 0.75 : 0.85;
+    strengths = ['Trả lời có liên quan đến chủ đề.', 'Đã truyền đạt được một số ý chính.'];
+    practice = ['Kiểm tra danh sách ý bắt buộc trước khi nói.', 'Dùng thêm 因为、所以、但是、然后 để nối ý.'];
   } else {
-    const fluencyScore = cleanTranscript.length < 10 ? 2.0 : cleanTranscript.length < 40 ? 3.0 : cleanTranscript.length < 100 ? 4.0 : 4.5;
-    criteria_scores = buildCriteriaScores([
-      ['criterion_1', 'Độ trôi chảy', fluencyScore],
-      ['criterion_2', 'Ngữ cảnh & Logic', Math.max(1, fluencyScore - 0.2)]
-    ]);
-    praise = 'Bạn đã hoàn thành phần nói tự do. Hệ thống fallback đánh giá sơ bộ dựa trên độ liền mạch của transcript.';
-    nativeSuggestion = 'Bạn có thể nối ý tự nhiên hơn bằng 然后 (ránhòu - sau đó), 另外 (lìngwài - ngoài ra), 所以 (suǒyǐ - vì vậy).';
+    ratio = cleanTranscript.length < 10 ? 0.35 : cleanTranscript.length < 40 ? 0.6 : cleanTranscript.length < 100 ? 0.75 : 0.85;
+    strengths = ['Diễn đạt được ý cơ bản trong phần nói tự do.'];
+    practice = ['Mỗi ý nên có 观点、原因、例子.', 'Nói thành câu hoàn chỉnh thay vì các từ đơn lẻ.'];
   }
 
+  const criteria_scores = makeDefaultCriteriaScores(mode, ratio);
   return normalizeChineseAssessmentResult({
-    total_score: averageCriteriaScore(criteria_scores),
+    total_score: totalCriteriaScore10(criteria_scores),
     criteria_scores,
     feedback: {
-      praise,
+      strengths,
       errors_found: [],
-      native_suggestion: nativeSuggestion
+      practice_suggestions: practice,
+      native_suggestion: practice.join(' ')
     }
   }, mode, lang);
 }
@@ -1390,74 +1492,100 @@ const evaluateWithOpenAI = async (transcript, expectedText, level, mode, lang, r
   const taskType = getTaskTypeLabel(mode);
   const promptTarget = mode === 'topic' ? (requirement || expectedText || 'None') : (expectedText || requirement || 'None');
 
-  const systemPrompt = `Bạn là một AI Chuyên gia Khảo thí và Giám khảo Tiếng Trung có 15 năm kinh nghiệm. Nhiệm vụ của bạn là phân tích đoạn text đã được chuyển từ giọng nói thành văn bản (STT) của học sinh, so sánh với yêu cầu bài học và trả về kết quả chấm điểm chi tiết bằng tiếng Việt dưới định dạng JSON.
+  const rubric = getRubricForMode(mode);
+  const rubricJson = JSON.stringify(
+    Object.fromEntries(rubric.criteria.map(([key, name, maxScore]) => [key, { name, max_score: maxScore }])),
+    null,
+    2
+  );
 
-Học sinh vừa hoàn thành bài tập với thông tin sau:
-- Dạng bài tập: ${taskType}
-- Đề bài/Câu mẫu: "${promptTarget}"
-- Đoạn văn học sinh nói: "${transcript}"
-- Trình độ mục tiêu: ${level || 'HSK 3'}
+  const systemPrompt = `Bạn là AI Chuyên gia Khảo thí & Giám khảo Tiếng Trung có 15 năm kinh nghiệm. Hãy chấm bài nói theo rubric tiếng Trung mới của Mandarin Spark và trả về JSON hợp lệ bằng tiếng Việt.
 
-QUY TẮC BẮT BUỘC:
-1. Chỉ trả về một JSON object hợp lệ. Không markdown. Không lời dẫn. Không code block.
-2. Tất cả feedback phải bằng tiếng Việt, dùng đại từ trung tính "bạn" khi nói với học sinh.
-3. Điểm từng tiêu chí dùng thang 1-5, có thể dùng số thập phân 1 chữ số.
-4. total_score là trung bình cộng của các tiêu chí và làm tròn 1 chữ số thập phân.
-5. Chỉ ghi lỗi trong errors_found khi lỗi có bằng chứng trong transcript hoặc câu mẫu. Không bịa lỗi.
-6. Nếu transcript rỗng hoặc không nhận diện được, cho điểm thấp và giải thích rõ.
-7. Nếu học sinh nói chủ yếu không phải tiếng Trung, không chấm bình thường; trả điểm thấp và yêu cầu nói bằng tiếng Trung.
+THÔNG TIN BÀI LÀM:
+- Dạng bài: ${rubric.label}
+- Mode kỹ thuật: ${mode}
+- Đề bài/Câu mẫu/Yêu cầu: "${promptTarget}"
+- Transcript STT của học sinh: "${transcript}"
+- Trình độ mục tiêu: ${level || 'HSK1-HSK3 Beginner'}
 
-LƯU Ý KỸ THUẬT VỀ STT VÀ PHÁT ÂM:
-- Transcript STT thông thường có thể tự động chuẩn hóa hoặc sửa từ sai thành từ đúng theo ngữ cảnh.
-- Vì vậy, nếu chỉ có transcript, hãy thận trọng khi kết luận lỗi thanh điệu/phát âm.
-- Với Shadowing, vẫn đánh giá Thanh điệu & Phát âm theo mức độ có thể suy ra từ transcript và độ khớp với câu mẫu, nhưng không được bịa lỗi thanh điệu cụ thể nếu transcript không đủ bằng chứng.
-- Khi nói câu dài, tiếng Trung có biến điệu và điều chỉnh ngữ điệu tự nhiên. Không phạt quá cứng nếu cách nói vẫn tự nhiên và dễ hiểu.
+MỤC TIÊU TỪNG LOẠI BÀI:
+- Shadowing theo từ: phát âm + thanh điệu chính xác.
+- Shadowing theo câu: phát âm + thanh điệu + ngữ điệu câu.
+- Nói theo chủ đề mẫu: khả năng tái tạo ngôn ngữ. Học sinh có bài mẫu tham khảo nhưng KHÔNG bắt buộc lặp lại bài mẫu; được dùng cách diễn đạt riêng, thêm trải nghiệm cá nhân và mở rộng nội dung.
+- Nói tự do: năng lực giao tiếp thực sự. KHÔNG đánh giá chủ đề đúng/sai, KHÔNG chấm giống bài mẫu hay bám đề; chỉ đánh giá khả năng sử dụng tiếng Trung.
 
-TIÊU CHÍ CHẤM ĐIỂM:
+RUBRIC CẦN DÙNG CHO BÀI NÀY:
+${rubricJson}
 
-1. Nếu là bài SHADOWING:
-   criterion_1:
-   - name: "Thanh điệu & Phát âm"
-   - Đánh giá lỗi thanh điệu, lỗi khinh thanh, biến điệu như hai thanh 3, biến điệu 不 (bù) và 一 (yī) nếu có đủ bằng chứng.
-   criterion_2:
-   - name: "Ngắt nghỉ & Nhịp điệu"
-   - Đánh giá học sinh có ngắt câu đúng cụm từ, đọc liền mạch và giữ nhịp tự nhiên không.
+Bạn PHẢI trả về đủ đúng các key sau trong criteria_scores: ${rubric.criteria.map(([key]) => key).join(', ')}.
 
-2. Nếu là bài NÓI THEO CHỦ ĐỀ:
-   criterion_1:
-   - name: "Từ vựng chủ đề"
-   - Đánh giá học sinh có dùng đúng và đa dạng từ vựng liên quan đến chủ đề không.
-   criterion_2:
-   - name: "Ngữ pháp & Cấu trúc"
-   - Đánh giá lỗi dùng từ ly hợp, câu 把/被, trật tự từ, lượng từ, bổ ngữ, liên từ và cấu trúc phù hợp trình độ HSK.
+GIẢI THÍCH TIÊU CHÍ:
+1. Shadowing theo từ:
+- initials_finals: thanh mẫu 声母, vận mẫu 韵母, không thiếu/thêm âm, không đọc theo tiếng Việt/Anh.
+- tone_accuracy: thanh 1, 2, 3, 4, thanh nhẹ. Đây là tiêu chí rất quan trọng.
+- tone_sandhi: biến điệu thanh 3+3, 一, 不 nếu xuất hiện. Không phạt nếu từ không có biến điệu.
+- difficult_sounds: zh/ch/sh/r, j/q/x, z/zh, c/ch, s/sh, l/n.
+- naturalness: không đánh vần từng âm, không ngắt bất thường, nghe tự nhiên. Beginner chấm nhẹ.
 
-3. Nếu là bài NÓI TỰ DO:
-   criterion_1:
-   - name: "Độ trôi chảy"
-   - Đánh giá độ liền mạch của văn bản, cho phép từ đệm tự nhiên như 那个, 就是, 然后 nếu dùng vừa phải.
-   criterion_2:
-   - name: "Ngữ cảnh & Logic"
-   - Đánh giá câu trả lời có hợp lý với ngữ cảnh giao tiếp, có mạch ý rõ ràng không.
+2. Shadowing theo câu:
+- pronunciation: đọc đúng từng từ.
+- tone_accuracy: giữ thanh điệu trong cả câu, không mất thanh khi nói nhanh.
+- sandhi_intonation: biến điệu và ngữ điệu câu tự nhiên, ví dụ 是不是? lên giọng cuối câu.
+- rhythm: ngắt cụm hợp lý.
+- similarity: so với câu mẫu về phát âm, thanh điệu, tốc độ, ngữ điệu, nhịp câu.
 
-YÊU CẦU ĐẦU RA:
-Bạn CHỈ ĐƯỢC TRẢ VỀ một khối JSON duy nhất theo đúng cấu trúc sau:
+3. Nói theo chủ đề mẫu:
+- pronunciation: thanh mẫu, vận mẫu, thanh điệu, độ dễ hiểu.
+- grammar: trật tự từ, 是, 有, lượng từ, trợ từ cơ bản. Ví dụ 我妈妈老师 → 我妈妈是老师.
+- topic_vocabulary: từ vựng đúng chủ đề và có sự đa dạng.
+- content_completeness: đủ các ý yêu cầu trong đề.
+- fluency: ít ngập ngừng, nói thành cụm câu, có kết nối ý.
+- task_relevance: có liên quan đề bài. Không bắt buộc lặp lại bài mẫu.
+
+4. Free Speaking:
+- pronunciation: độ rõ, thanh điệu, biến điệu cơ bản, âm khó.
+- fluency: nói liên tục, ít ngập ngừng, tốc độ phù hợp.
+- grammar: trật tự từ, lượng từ, cấu trúc câu, trợ từ cơ bản.
+- vocabulary: đa dạng và phù hợp.
+- idea_development: có giải thích, ví dụ, liên kết ý.
+
+QUY TẮC CHẤM ĐIỂM:
+1. Chỉ trả về một JSON object hợp lệ. Không markdown, không lời dẫn.
+2. total_score dùng thang 10, là tổng điểm các tiêu chí theo max_score ở rubric trên.
+3. Mỗi criterion.score là điểm đạt được trong giới hạn criterion.max_score, không phải điểm /10 riêng lẻ.
+4. Chỉ ghi lỗi khi có bằng chứng trong transcript hoặc có thể so với câu mẫu/yêu cầu. Không bịa lỗi.
+5. Phải chỉ ra lỗi cụ thể: học sinh nói gì, nên sửa thành gì, vì sao sai.
+6. Nếu transcript rỗng/không nhận diện được, cho điểm thấp và nói rõ.
+7. Nếu học sinh nói chủ yếu tiếng Việt/Anh hoặc không phải tiếng Trung, cho điểm thấp.
+8. Với Shadowing, KHÔNG nhận xét “nên nói dài hơn”, “thiếu ý”, “cần mở rộng nội dung”. Chỉ nhận xét phát âm, thanh điệu, biến điệu, ngữ điệu, nhịp, similarity.
+9. Vì transcript STT có thể tự sửa lỗi phát âm/thanh điệu, hãy thận trọng: nếu không đủ bằng chứng, dùng các câu như “chưa có đủ bằng chứng âm thanh để kết luận lỗi thanh điệu cụ thể từ transcript”.
+10. Với Beginner, chấm nhẹ lỗi nhỏ nhưng vẫn cần phân biệt thanh điệu cơ bản.
+11. Với câu/ngữ đoạn rất ngắn như 你好, 中国人, 学生: KHÔNG bịa lỗi rhythm hoặc ngữ điệu cuối câu nếu câu mẫu không có dấu hỏi/吗/呢/是不是. Nếu transcript khớp câu mẫu, điểm thường phải từ 7.5 trở lên, trừ khi có bằng chứng lỗi phát âm/thanh điệu rõ ràng.
+12. Tuyệt đối không trả total_score là điểm trung bình 2.0/2.5/3.0. total_score phải là TỔNG các criterion.score theo trọng số, tối đa 10.
+
+ĐẦU RA JSON BẮT BUỘC:
 {
-  "total_score": 4.3,
+  "total_score": 8.5,
   "criteria_scores": {
-    "criterion_1": { "name": "Tên tiêu chí 1", "score": 4.5 },
-    "criterion_2": { "name": "Tên tiêu chí 2", "score": 4.0 }
+    "criterion_key_from_rubric": { "name": "Tên tiêu chí", "score": 1.7, "max_score": 2 }
   },
+  "note": "total_score phải bằng tổng tất cả criterion.score, không phải điểm trung bình",
   "feedback": {
-    "praise": "Lời khen ngợi về điểm tốt của học sinh bằng tiếng Việt (1-2 câu).",
+    "strengths": [
+      "Điểm mạnh cụ thể, bám vào bài nói."
+    ],
     "errors_found": [
       {
-        "error_type": "Loại lỗi (Ví dụ: Biến điệu / Dùng từ sai / Ngữ pháp)",
-        "original": "Cụm từ học sinh nói sai",
-        "correction": "Cụm từ đúng kèm Pinyin",
-        "explanation": "Giải thích ngắn gọn bằng tiếng Việt tại sao sai và cách sửa."
+        "error_type": "Ví dụ: Thanh điệu / Thanh mẫu-vận mẫu / Biến điệu / Ngữ pháp / Lượng từ / Trật tự từ",
+        "original": "Phần học sinh nói sai hoặc phần đáng chú ý",
+        "correction": "Cách sửa đúng, kèm pinyin nếu cần",
+        "explanation": "Giải thích ngắn gọn, cụ thể."
       }
     ],
-    "native_suggestion": "Gợi ý cách nói/từ vựng nâng cao hơn để nghe tự nhiên như người bản xứ (kèm Pinyin và dịch nghĩa)."
+    "practice_suggestions": [
+      "Gợi ý luyện tập cụ thể, có ví dụ tiếng Trung/pinyin nếu phù hợp."
+    ],
+    "native_suggestion": "Một gợi ý diễn đạt tự nhiên hơn, kèm pinyin và nghĩa tiếng Việt nếu phù hợp."
   }
 }`;
 
@@ -1493,7 +1621,7 @@ Bạn CHỈ ĐƯỢC TRẢ VỀ một khối JSON duy nhất theo đúng cấu t
     const match = textRes.match(/\{[\s\S]*\}/);
     const jsonText = match ? match[0] : textRes;
     try {
-      return normalizeChineseAssessmentResult(JSON.parse(jsonText), mode, lang);
+      return normalizeChineseAssessmentResult(JSON.parse(jsonText), mode, lang, { transcript, expectedText });
     } catch (err) {
       console.warn('OpenAI response is not valid JSON:', err, textRes);
       return null;
@@ -1759,19 +1887,17 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
 
       let finalResult;
       if (isFileUpload) {
-        const baseScore = 3.0 + Math.random() * 1.5;
-        const clamp = (val) => Math.min(5.0, Math.max(1.0, parseFloat(val) || 1)).toFixed(1);
-        finalResult = {
-          score: clamp(baseScore),
-          level: score5ToRank(baseScore, lang),
-          criteria: {
-            [t('cPronunciation')]: clamp(baseScore - 0.2),
-            [t('cFluency')]: clamp(baseScore)
-          },
-          feedback: lang === 'en'
-            ? `[AUDIO FILE UPLOAD MODE]\nDue to browser limits, detailed pronunciation errors cannot be extracted from uploaded files. Use "Direct Record" for full AI capabilities.`
-            : `[CHÚ Ý: BẠN ĐANG TẢI FILE ÂM THANH]\nDo hạn chế của trình duyệt, hệ thống không thể bóc tách từng lỗi ngữ âm chính xác từ file có sẵn. Hãy dùng nút "Thu âm trực tiếp" để AI đọc chính xác từng từ bạn nói nhé!`
-        };
+        const criteria_scores = makeDefaultCriteriaScores(type, 0.65);
+        finalResult = normalizeChineseAssessmentResult({
+          total_score: totalCriteriaScore10(criteria_scores),
+          criteria_scores,
+          feedback: {
+            strengths: ['Bạn đã nộp được file âm thanh để hệ thống ghi nhận bài nói.'],
+            errors_found: [],
+            practice_suggestions: ['Dùng nút Thu âm trực tiếp để AI có thể phân tích sát hơn theo rubric 10 điểm.', 'Khi luyện, chú ý thanh điệu, lượng từ và trật tự từ trong câu tiếng Trung.'],
+            native_suggestion: 'Hãy thu âm trực tiếp để nhận phản hồi cụ thể hơn về phát âm, thanh điệu và lỗi ngữ pháp.'
+          }
+        }, type, lang);
       } else {
         const expectedText = type === 'topic' ? currentTopic?.hint?.cn || '' : '';
         const topicRequirement = type === 'topic' ? currentTopic?.req || '' : '';
@@ -1799,7 +1925,7 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
           } else {
             const apiRes = await evaluateWithOpenAI(transcript, expectedText, levelTarget, type, lang, topicRequirement);
             if (apiRes) {
-              finalResult = normalizeChineseAssessmentResult(apiRes, type, lang);
+              finalResult = apiRes;
             } else {
               // Fallback an toàn nếu API quá tải
               finalResult = generateGradingResultFallback(transcript, expectedText, levelTarget, type, lang, t);
@@ -2011,11 +2137,17 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
 
       let res;
       if (isFile) {
-        res = {
-          score: '3.5', level: score5ToRank(3.5, lang),
-          criteria: { [t('cPronunciation')]: '3.5', [t('cFluency')]: '3.5' },
-          feedback: lang === 'en' ? "Use Direct Record for accurate evaluation." : "[CHẾ ĐỘ TẢI FILE]\nHệ thống không thể bóc tách lỗi chi tiết từ file ghi âm tải lên. Hãy dùng Thu âm trực tiếp."
-        };
+        const criteria_scores = makeDefaultCriteriaScores(type || 'sentence', 0.65);
+        res = normalizeChineseAssessmentResult({
+          total_score: totalCriteriaScore10(criteria_scores),
+          criteria_scores,
+          feedback: {
+            strengths: ['Bạn đã nộp được file âm thanh để hệ thống ghi nhận phần shadowing.'],
+            errors_found: [],
+            practice_suggestions: ['Dùng Thu âm trực tiếp để AI phân tích phát âm, thanh điệu, biến điệu và nhịp câu chính xác hơn.'],
+            native_suggestion: 'Hãy nghe mẫu 2–3 lần, đánh dấu thanh điệu rồi đọc lại theo cụm ngắn.'
+          }
+        }, type || 'sentence', lang);
       } else {
         const currentItem = selectedLesson.items[currentIndex];
 
@@ -2041,7 +2173,7 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
           } else {
             const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
             if (apiRes) {
-              res = normalizeChineseAssessmentResult(apiRes, type, lang);
+              res = apiRes;
             } else {
               // Fallback an toàn nếu API quá tải
               res = generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t);
@@ -2308,12 +2440,15 @@ function ReportCard({ result, studentName, fileUrl, onReset }) {
 }
 
 function CriteriaBar({ label, score }) {
-  const percentage = (parseFloat(score) / 5) * 100;
+  const maxMatch = String(label || '').match(/\((\d+(?:\.\d+)?)đ\)/);
+  const maxScore = maxMatch ? parseFloat(maxMatch[1]) : 10;
+  const numericScore = parseFloat(score) || 0;
+  const percentage = Math.max(0, Math.min(100, (numericScore / maxScore) * 100));
   return (
     <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
       <div className="flex justify-between items-center mb-2">
         <span className="font-bold text-sm text-slate-600">{label}</span>
-        <span className="font-black text-[#C8102E] text-base">{score}</span>
+        <span className="font-black text-[#C8102E] text-base">{numericScore.toFixed(1)}/{maxScore}</span>
       </div>
       <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
         <div className="h-full bg-gradient-to-r from-red-400 to-[#C8102E]" style={{ width: `${percentage}%` }}></div>
