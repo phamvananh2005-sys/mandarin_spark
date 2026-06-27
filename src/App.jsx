@@ -274,6 +274,132 @@ function PronunciationText({ text }) {
   );
 }
 
+// --- HELPER: Mandarin TTS chuẩn hơn ---
+// Browser TTS dễ đọc sai nếu chỉ set utterance.lang = 'zh-CN' mà không chọn voice thật.
+// Các hàm dưới đây ép ưu tiên voice Mandarin/Putonghua và tránh dùng nhầm voice mặc định EN/VI/HK.
+const MANDARIN_NORMAL_RATE_BY_LEVEL = {
+  HSK1: 0.86,
+  HSK2: 0.9,
+  HSK3: 0.95,
+  HSK4: 1.0,
+  HSK5: 1.03,
+  HSK6: 1.05
+};
+
+const MANDARIN_VOICE_PRIORITY_KEYWORDS = [
+  'xiaoxiao', '晓晓', 'xiaoyi', '晓伊', 'yunxi', '云希', 'yunjian', '云健', 'yunyang', '云扬',
+  'google 普通话', 'google 中文', 'google mandarin', 'google chinese',
+  'mandarin', 'putonghua', '普通话', 'zh-cn', 'china', 'chinese'
+];
+
+let cachedSpeechVoices = [];
+
+const refreshSpeechVoices = () => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return [];
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (voices.length) cachedSpeechVoices = voices;
+  return voices.length ? voices : cachedSpeechVoices;
+};
+
+const preloadMandarinVoices = () => {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  refreshSpeechVoices();
+  const previousHandler = window.speechSynthesis.onvoiceschanged;
+  window.speechSynthesis.onvoiceschanged = (event) => {
+    refreshSpeechVoices();
+    if (typeof previousHandler === 'function') previousHandler.call(window.speechSynthesis, event);
+  };
+};
+
+const scoreMandarinVoice = (voice) => {
+  const lang = String(voice?.lang || '').toLowerCase();
+  const name = String(voice?.name || '').toLowerCase();
+  const local = voice?.localService ? 1 : 0;
+  let score = 0;
+
+  if (lang === 'zh-cn' || lang === 'cmn-hans-cn') score += 100;
+  else if (lang.startsWith('zh-cn') || lang.includes('hans-cn')) score += 90;
+  else if (lang === 'zh-sg' || lang.includes('hans-sg')) score += 70;
+  else if (lang.startsWith('zh') || lang.startsWith('cmn')) score += 45;
+
+  // Tránh chọn Cantonese/Hong Kong hoặc Taiwan nếu có voice Mainland/Mandarin tốt hơn.
+  if (lang.includes('zh-hk') || lang.includes('yue') || name.includes('cantonese') || name.includes('粤')) score -= 80;
+  if (lang.includes('zh-tw') || name.includes('taiwan') || name.includes('台灣') || name.includes('台湾')) score -= 25;
+
+  MANDARIN_VOICE_PRIORITY_KEYWORDS.forEach((keyword, index) => {
+    if (name.includes(keyword.toLowerCase())) score += Math.max(6, 32 - index);
+  });
+
+  if (name.includes('microsoft')) score += 12;
+  if (name.includes('google')) score += 10;
+  if (local) score += 2;
+
+  return score;
+};
+
+const getBestMandarinVoice = () => {
+  const voices = refreshSpeechVoices();
+  if (!voices.length) return null;
+
+  const ranked = voices
+    .map(voice => ({ voice, score: scoreMandarinVoice(voice) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  return ranked[0]?.voice || null;
+};
+
+const cleanMandarinTextForSpeech = (textRaw) => {
+  let text = String(textRaw || '')
+    // [汉字|pinyin] => chỉ đọc phần chữ Hán, không đọc pinyin.
+    .replace(/\[([^|]+)\|([^\]]+)\]/g, '$1')
+    .trim();
+
+  // Nếu giáo viên lỡ paste cả dòng kiểu "你好 / nǐ hǎo / Xin chào / Hello",
+  // TTS chỉ đọc phần tiếng Trung trước dấu /.
+  if (text.includes('/')) text = text.split('/')[0];
+
+  return text
+    .replace(/\s+/g, ' ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim();
+};
+
+const getMandarinSpeechRate = (speedMode = 'normal', level = 'HSK3') => {
+  if (speedMode === 'slow') return 0.72; // Không quá chậm để tránh méo thanh điệu Mandarin.
+  const normalizedLevel = normalizeShadowingLevel(level || 'HSK3') || 'HSK3';
+  return MANDARIN_NORMAL_RATE_BY_LEVEL[normalizedLevel] || 0.95;
+};
+
+const speakMandarinModelAudio = ({ textRaw, speedMode = 'normal', level = 'HSK3', onStart, onEnd, onUnsupported }) => {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (typeof onUnsupported === 'function') onUnsupported();
+    return;
+  }
+
+  const cleanText = cleanMandarinTextForSpeech(textRaw);
+  if (!cleanText) return;
+
+  const utterance = new SpeechSynthesisUtterance(cleanText);
+  utterance.lang = 'zh-CN';
+  utterance.voice = getBestMandarinVoice();
+  utterance.rate = getMandarinSpeechRate(speedMode, level);
+  utterance.pitch = 1;
+  utterance.volume = 1;
+
+  const finish = () => {
+    if (typeof onEnd === 'function') onEnd();
+  };
+
+  utterance.onend = finish;
+  utterance.onerror = finish;
+
+  if (typeof onStart === 'function') onStart(speedMode);
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+};
+
 // --- MOCK DATABASE ---
 // Removed initialTopics and initialShadowing, now using Supabase
 
@@ -294,6 +420,10 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState(() => {
     return localStorage.getItem('mandarin_admin_pwd') || 'admin123';
   });
+
+  useEffect(() => {
+    preloadMandarinVoices();
+  }, []);
 
   useEffect(() => {
     const style = document.createElement('style');
@@ -1847,27 +1977,14 @@ function FreeAndTopicMode({ type, studentName, onRequireName, dbTopics }) {
   useEffect(() => { if (!studentName) onRequireName(); }, []);
 
   const playModelAudio = (textRaw, speedMode = 'normal') => {
-    if (!('speechSynthesis' in window)) { alert("TTS not supported in your browser."); return; }
-
-    // Đọc mẫu bằng Hán tự: chỉ bỏ phần chú thích pinyin trong cú pháp [汉字|pinyin]
-    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$1');
-    setIsPlayingModel(speedMode);
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'zh-CN';
-
-    if (speedMode === 'slow') {
-      utterance.rate = 0.35;
-    } else {
-      const rateMap = { 'HSK1': 0.8, 'HSK2': 0.9, 'HSK3': 1.0, 'HSK4': 1.05, 'HSK5': 1.1, 'HSK6': 1.15 };
-      utterance.rate = currentTopic ? (rateMap[currentTopic.level] || 1.0) : 1.0;
-    }
-
-    utterance.onend = () => setIsPlayingModel(false);
-    utterance.onerror = () => setIsPlayingModel(false);
-
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    speakMandarinModelAudio({
+      textRaw,
+      speedMode,
+      level: currentTopic?.level || 'HSK3',
+      onStart: setIsPlayingModel,
+      onEnd: () => setIsPlayingModel(false),
+      onUnsupported: () => alert("TTS not supported in your browser.")
+    });
   };
 
   const handleAudioReady = (file, url, text, isFile) => {
@@ -2104,27 +2221,13 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
   };
 
   const playModelAudio = (textRaw, speedMode = 'normal') => {
-    if (!('speechSynthesis' in window)) { return; }
-
-    // Đọc mẫu bằng Hán tự: chỉ bỏ phần chú thích pinyin trong cú pháp [汉字|pinyin]
-    const cleanText = textRaw.replace(/\[([^|]+)\|([^\]]+)\]/g, '$1');
-    setIsPlayingModel(speedMode);
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'zh-CN';
-
-    if (speedMode === 'slow') {
-      utterance.rate = 0.35;
-    } else {
-      const rateMap = { 'HSK1': 0.8, 'HSK2': 0.9, 'HSK3': 1.0, 'HSK4': 1.05, 'HSK5': 1.1, 'HSK6': 1.15 };
-      utterance.rate = rateMap[level] || 1.0;
-    }
-
-    utterance.onend = () => setIsPlayingModel(false);
-    utterance.onerror = () => setIsPlayingModel(false);
-
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    speakMandarinModelAudio({
+      textRaw,
+      speedMode,
+      level,
+      onStart: setIsPlayingModel,
+      onEnd: () => setIsPlayingModel(false)
+    });
   };
 
   const handleAudioReady = async (file, url) => {
