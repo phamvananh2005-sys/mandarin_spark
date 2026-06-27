@@ -274,23 +274,38 @@ function PronunciationText({ text }) {
   );
 }
 
-// --- HELPER: Mandarin model audio siêu chuẩn ---
-// Nguyên tắc mới:
-// 1) Ưu tiên audio mẫu giọng nữ bản địa / Cloud TTS đã render sẵn.
-// 2) Nếu cần “Chậm”, ưu tiên file audio chậm riêng hoặc backend synthesize chậm bằng SSML.
-// 3) Không kéo playbackRate thấp cho file chuẩn vì tiếng Trung rất dễ bị méo thanh điệu.
-// 4) Browser TTS chỉ là fallback cuối cùng, không thể bảo đảm chuẩn như native.
-const MANDARIN_NORMAL_RATE_BY_LEVEL = {
-  HSK1: 0.9,
-  HSK2: 0.93,
-  HSK3: 0.96,
-  HSK4: 1.0,
-  HSK5: 1.03,
-  HSK6: 1.05
+// --- HELPER: Mandarin model audio FREE-only, calm prosody ---
+// Nguyên tắc bản miễn phí:
+// 1) Không gọi Google Cloud / Azure / backend trả phí.
+// 2) Ưu tiên audio mẫu miễn phí đã nhập trong Admin nếu có.
+// 3) Nếu không có audio mẫu, dùng browser TTS nhưng chọn voice Mandarin nữ tốt nhất có trên máy.
+// 4) Với nút Chậm: dùng slowAudioUrl nếu có; nếu không có thì synthesize chậm bằng browser TTS, KHÔNG kéo chậm file audio chuẩn.
+// 5) Chia câu thành cụm ngắn và tạo pause nhẹ để giọng điềm đạm hơn, gần cảm giác Google Dịch hơn trong giới hạn miễn phí.
+
+const MANDARIN_CALM_RATE_BY_LEVEL = {
+  HSK1: 0.80,
+  HSK2: 0.83,
+  HSK3: 0.86,
+  HSK4: 0.90,
+  HSK5: 0.93,
+  HSK6: 0.96
+};
+
+const MANDARIN_SLOW_RATE_BY_LEVEL = {
+  HSK1: 0.70,
+  HSK2: 0.72,
+  HSK3: 0.74,
+  HSK4: 0.76,
+  HSK5: 0.78,
+  HSK6: 0.80
 };
 
 const MANDARIN_FEMALE_VOICE_PRIORITY_KEYWORDS = [
-  // Microsoft / Azure female Mandarin voices
+  // Google / Chrome voices
+  'google 普通话', 'google 普通話', 'google 中文', 'google chinese', 'google mandarin',
+  '普通话', '普通話', 'putonghua', 'mandarin', 'zh-cn', 'cmn-hans-cn',
+
+  // Microsoft / Windows female Mandarin voices
   'xiaoxiao', '晓晓', '曉曉',
   'xiaoyi', '晓伊', '曉伊',
   'xiaohan', '晓涵', '曉涵',
@@ -300,26 +315,29 @@ const MANDARIN_FEMALE_VOICE_PRIORITY_KEYWORDS = [
   'huihui', '慧慧',
   'yaoyao', '瑶瑶', '瑤瑤',
   'tingting', '婷婷',
+
+  // Apple / generic female markers
   'mei-jia', 'meijia', 'sin-ji',
-  // Generic Mandarin markers
-  'female', 'woman', 'girl', '女',
-  'google 普通话', 'google 中文', 'google mandarin', 'google chinese',
-  'mandarin', 'putonghua', '普通话', '普通話', 'zh-cn', 'china', 'chinese'
+  'female', 'woman', 'girl', '女'
 ];
 
 const MANDARIN_MALE_OR_NON_STANDARD_PENALTY_KEYWORDS = [
-  // Azure male voices / common male markers
+  // Male voices
   'yunjian', '云健', '雲健',
   'yunxi', '云希', '雲希',
   'yunyang', '云扬', '雲揚',
   'yunhao', '云皓', '雲皓',
   'male', 'man', 'boy', '男',
-  // Avoid Cantonese / HK / TW when the course target is Mainland Mandarin
-  'cantonese', 'yue', '粤', '粵', 'hong kong', 'hongkong', 'hk',
+
+  // Avoid non-Mainland Mandarin when the course target is Putonghua
+  'cantonese', 'yue', '粤', '粵',
+  'hong kong', 'hongkong', 'hk',
   'taiwan', '台灣', '台湾', 'tw'
 ];
 
 let cachedSpeechVoices = [];
+let activeModelAudio = null;
+let activeMandarinSpeechRun = 0;
 
 const refreshSpeechVoices = () => {
   if (typeof window === 'undefined' || !window.speechSynthesis) return [];
@@ -341,25 +359,30 @@ const preloadMandarinVoices = () => {
 const scoreMandarinFemaleVoice = (voice) => {
   const lang = String(voice?.lang || '').toLowerCase();
   const name = String(voice?.name || '').toLowerCase();
-  const local = voice?.localService ? 1 : 0;
   let score = 0;
 
-  if (lang === 'zh-cn' || lang === 'cmn-hans-cn') score += 120;
-  else if (lang.startsWith('zh-cn') || lang.includes('hans-cn')) score += 105;
-  else if (lang === 'zh-sg' || lang.includes('hans-sg')) score += 70;
-  else if (lang.startsWith('zh') || lang.startsWith('cmn')) score += 35;
+  // Target: Mainland Mandarin / Putonghua.
+  if (lang === 'zh-cn' || lang === 'cmn-hans-cn') score += 160;
+  else if (lang.startsWith('zh-cn') || lang.includes('hans-cn')) score += 140;
+  else if (lang === 'zh-sg' || lang.includes('hans-sg')) score += 80;
+  else if (lang.startsWith('zh') || lang.startsWith('cmn')) score += 45;
+
+  // Prefer Google-like voices first when they exist on Chrome.
+  if (name.includes('google') && (name.includes('普通') || name.includes('chinese') || name.includes('mandarin') || lang.includes('zh-cn'))) score += 70;
 
   MANDARIN_FEMALE_VOICE_PRIORITY_KEYWORDS.forEach((keyword, index) => {
-    if (name.includes(keyword.toLowerCase())) score += Math.max(5, 42 - index);
+    if (name.includes(keyword.toLowerCase()) || lang.includes(keyword.toLowerCase())) {
+      score += Math.max(8, 54 - index);
+    }
   });
 
   MANDARIN_MALE_OR_NON_STANDARD_PENALTY_KEYWORDS.forEach(keyword => {
-    if (name.includes(keyword.toLowerCase()) || lang.includes(keyword.toLowerCase())) score -= 80;
+    if (name.includes(keyword.toLowerCase()) || lang.includes(keyword.toLowerCase())) score -= 95;
   });
 
-  if (name.includes('microsoft')) score += 12;
-  if (name.includes('google')) score += 10;
-  if (local) score += 2;
+  if (name.includes('microsoft')) score += 14;
+  if (name.includes('google')) score += 12;
+  if (voice?.localService) score += 2;
 
   return score;
 };
@@ -390,17 +413,20 @@ const cleanMandarinTextForSpeech = (textRaw) => {
     .replace(/\s+/g, ' ')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
+    .replace(/\s*([，。！？、；：,.!?;:])\s*/g, '$1')
     .trim();
 };
 
 const getMandarinSpeechRate = (speedMode = 'normal', level = 'HSK3') => {
-  // Browser TTS fallback only. Không dùng rate quá thấp vì sẽ méo thanh điệu.
-  if (speedMode === 'slow') return 0.86;
   const normalizedLevel = normalizeShadowingLevel(level || 'HSK3') || 'HSK3';
-  return MANDARIN_NORMAL_RATE_BY_LEVEL[normalizedLevel] || 0.96;
+  if (speedMode === 'slow') return MANDARIN_SLOW_RATE_BY_LEVEL[normalizedLevel] || 0.74;
+  return MANDARIN_CALM_RATE_BY_LEVEL[normalizedLevel] || 0.86;
 };
 
-let activeModelAudio = null;
+const getMandarinSpeechPitch = () => {
+  // Hạ rất nhẹ để giọng nữ bớt gắt, nghe điềm đạm hơn.
+  return 0.96;
+};
 
 const getAudioField = (source, fieldNames = []) => {
   if (!source || typeof source !== 'object') return '';
@@ -437,8 +463,6 @@ const getNativeModelAudioUrl = (source, speedMode = 'normal') => {
   return normalUrl;
 };
 
-const getNativeNormalAudioUrl = (source) => getNativeModelAudioUrl(source, 'normal');
-
 const getMandarinTextFromSource = (source) => {
   if (!source) return '';
   if (typeof source === 'string') return source;
@@ -448,48 +472,43 @@ const getMandarinTextFromSource = (source) => {
   return String(source || '');
 };
 
-const getTtsEndpoint = () => {
-  try {
-    return import.meta.env.VITE_MANDARIN_TTS_ENDPOINT || import.meta.env.VITE_TTS_API_URL || '';
-  } catch (_) {
-    return '';
+const cancelCurrentModelAudio = () => {
+  activeMandarinSpeechRun += 1;
+
+  if (activeModelAudio) {
+    try {
+      activeModelAudio.pause();
+      activeModelAudio.currentTime = 0;
+    } catch (_) {}
+    activeModelAudio = null;
   }
-};
 
-const escapeSsml = (value) => String(value || '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&apos;');
-
-const buildMandarinFemaleSsml = (text, speedMode = 'normal') => {
-  const rate = speedMode === 'slow' ? '-28%' : '0%';
-  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="zh-CN"><voice name="zh-CN-XiaoxiaoNeural"><prosody rate="${rate}" pitch="0%">${escapeSsml(text)}</prosody></voice></speak>`;
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
 };
 
 const playAudioElement = ({ audioUrl, onStart, onEnd }) => {
   if (!audioUrl || typeof Audio === 'undefined') return false;
 
   try {
-    if (activeModelAudio) {
-      activeModelAudio.pause();
-      activeModelAudio.currentTime = 0;
-      activeModelAudio = null;
-    }
-    if (typeof window !== 'undefined' && window.speechSynthesis) window.speechSynthesis.cancel();
+    cancelCurrentModelAudio();
+    const runId = activeMandarinSpeechRun;
 
     const audio = new Audio(audioUrl);
     activeModelAudio = audio;
 
     // Không dùng playbackRate để tạo bản chậm cho tiếng Trung.
-    // Nếu cần chậm không méo, dùng slowAudioUrl hoặc Cloud TTS render chậm bằng SSML.
+    // Nếu muốn chậm mà không méo thanh điệu, nhập slowAudioUrl riêng trong Admin.
     audio.playbackRate = 1.0;
     audio.preservesPitch = true;
     audio.mozPreservesPitch = true;
     audio.webkitPreservesPitch = true;
 
+    let finished = false;
     const finish = () => {
+      if (finished || runId !== activeMandarinSpeechRun) return;
+      finished = true;
       if (activeModelAudio === audio) activeModelAudio = null;
       if (typeof onEnd === 'function') onEnd();
     };
@@ -500,77 +519,123 @@ const playAudioElement = ({ audioUrl, onStart, onEnd }) => {
       if (audio.ended) finish();
     };
 
-    if (typeof onStart === 'function') onStart();
+    if (typeof onStart === 'function') onStart(true);
     audio.play().catch(finish);
     return true;
   } catch (error) {
-    console.warn('Cannot play native Mandarin audio:', error);
+    console.warn('Cannot play Mandarin model audio:', error);
     if (typeof onEnd === 'function') onEnd();
     return false;
   }
 };
 
-const tryPlayCloudMandarinTts = async ({ textRaw, speedMode = 'normal', level = 'HSK3', onStart, onEnd }) => {
-  const endpoint = getTtsEndpoint();
-  if (!endpoint || typeof fetch === 'undefined') return false;
+const shouldUseSingleChunk = (text) => {
+  const clean = String(text || '').replace(/[，。！？、；：,.!?;:\s]/g, '');
+  return clean.length <= 8;
+};
 
-  const cleanText = cleanMandarinTextForSpeech(textRaw);
-  if (!cleanText) return false;
+const splitMandarinIntoCalmChunks = (textRaw, speedMode = 'normal') => {
+  const text = cleanMandarinTextForSpeech(textRaw);
+  if (!text) return [];
+  if (shouldUseSingleChunk(text)) return [text];
 
-  try {
-    if (typeof onStart === 'function') onStart(speedMode);
+  const chunks = [];
+  let buffer = '';
+  const hardBreaks = new Set(['。', '！', '？', '!', '?', ';', '；']);
+  const softBreaks = new Set(['，', ',', '、', '：', ':']);
+  const maxLen = speedMode === 'slow' ? 10 : 14;
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: cleanText,
-        language: 'zh-CN',
-        locale: 'zh-CN',
-        voice: 'zh-CN-XiaoxiaoNeural',
-        voiceGender: 'Female',
-        gender: 'female',
-        style: 'general',
-        speedMode,
-        // Backend nên synthesize audio ở tốc độ này, không trả file chuẩn rồi để frontend kéo chậm.
-        rate: speedMode === 'slow' ? '-28%' : '0%',
-        pitch: '0%',
-        outputFormat: 'audio-24khz-48kbitrate-mono-mp3',
-        ssml: buildMandarinFemaleSsml(cleanText, speedMode),
-        browserFallbackRate: getMandarinSpeechRate(speedMode, level)
-      })
-    });
+  for (const char of text) {
+    buffer += char;
 
-    if (!response.ok) throw new Error(`TTS endpoint failed: ${response.status}`);
+    const isHardBreak = hardBreaks.has(char);
+    const isSoftBreak = softBreaks.has(char);
+    const isLongEnough = buffer.replace(/[，。！？、；：,.!?;:\s]/g, '').length >= maxLen;
 
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await response.json();
-      const audioUrl = data.audioUrl || data.audio_url || data.url;
-      if (audioUrl) return playAudioElement({ audioUrl, onStart: null, onEnd });
-      if (data.audioBase64 || data.audio_base64) {
-        const base64 = data.audioBase64 || data.audio_base64;
-        const mime = data.mimeType || data.mime_type || 'audio/mpeg';
-        return playAudioElement({ audioUrl: `data:${mime};base64,${base64}`, onStart: null, onEnd });
-      }
-      throw new Error('TTS JSON response has no audioUrl/audioBase64');
+    if (isHardBreak || isSoftBreak || isLongEnough) {
+      const cleaned = buffer.trim();
+      if (cleaned) chunks.push(cleaned);
+      buffer = '';
     }
+  }
 
-    const blob = await response.blob();
-    const audioUrl = URL.createObjectURL(blob);
-    return playAudioElement({
-      audioUrl,
-      onStart: null,
-      onEnd: () => {
-        URL.revokeObjectURL(audioUrl);
-        if (typeof onEnd === 'function') onEnd();
-      }
-    });
-  } catch (error) {
-    console.warn('Cloud Mandarin TTS unavailable, falling back:', error);
-    if (typeof onEnd === 'function') onEnd();
+  if (buffer.trim()) chunks.push(buffer.trim());
+
+  // Tránh chia quá vụn: ghép các mảnh 1-2 chữ với mảnh sau.
+  const merged = [];
+  for (const chunk of chunks) {
+    const bareLen = chunk.replace(/[，。！？、；：,.!?;:\s]/g, '').length;
+    if (bareLen <= 2 && merged.length) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]}${chunk}`;
+    } else {
+      merged.push(chunk);
+    }
+  }
+
+  return merged.length ? merged : [text];
+};
+
+const speakMandarinBrowserCalm = ({ textRaw, speedMode = 'normal', level = 'HSK3', onStart, onEnd, onUnsupported }) => {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    if (typeof onUnsupported === 'function') onUnsupported();
     return false;
   }
+
+  const chunks = splitMandarinIntoCalmChunks(textRaw, speedMode);
+  if (!chunks.length) return false;
+
+  cancelCurrentModelAudio();
+  const runId = activeMandarinSpeechRun;
+  const selectedVoice = getBestMandarinFemaleVoice();
+  const rate = getMandarinSpeechRate(speedMode, level);
+  const pitch = getMandarinSpeechPitch();
+  const pauseMs = speedMode === 'slow' ? 260 : 150;
+
+  let index = 0;
+  let hasStarted = false;
+
+  const finishAll = () => {
+    if (runId !== activeMandarinSpeechRun) return;
+    if (typeof onEnd === 'function') onEnd();
+  };
+
+  const speakNext = () => {
+    if (runId !== activeMandarinSpeechRun) return;
+
+    if (index >= chunks.length) {
+      finishAll();
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(chunks[index]);
+    utterance.lang = 'zh-CN';
+    utterance.voice = selectedVoice;
+    utterance.rate = rate;
+    utterance.pitch = pitch;
+    utterance.volume = 1;
+
+    utterance.onstart = () => {
+      if (!hasStarted) {
+        hasStarted = true;
+        if (typeof onStart === 'function') onStart(true);
+      }
+    };
+
+    utterance.onend = () => {
+      index += 1;
+      window.setTimeout(speakNext, pauseMs);
+    };
+
+    utterance.onerror = () => {
+      index += 1;
+      window.setTimeout(speakNext, pauseMs);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  speakNext();
+  return true;
 };
 
 const speakMandarinModelAudio = async ({ modelSource, textRaw, audioUrl, speedMode = 'normal', level = 'HSK3', onStart, onEnd, onUnsupported }) => {
@@ -579,63 +644,29 @@ const speakMandarinModelAudio = async ({ modelSource, textRaw, audioUrl, speedMo
   const explicitUrlFromArg = String(audioUrl || '').trim();
   const speedSpecificAudioUrl = explicitUrlFromArg || getNativeModelAudioUrl(source, speedMode);
 
-  // Normal: dùng audio nữ/native đã lưu.
-  // Slow: CHỈ dùng slowAudioUrl nếu có. Không kéo chậm file normal vì sẽ méo chữ/thanh điệu.
+  // Nếu Admin đã nhập audio mẫu, ưu tiên phát audio đó.
+  // Với nút Chậm, chỉ dùng slowAudioUrl riêng; không kéo chậm audio chuẩn để tránh méo thanh điệu.
   if (speedSpecificAudioUrl) {
     const ok = playAudioElement({
       audioUrl: speedSpecificAudioUrl,
-      onStart: () => { if (typeof onStart === 'function') onStart(speedMode); },
+      onStart,
       onEnd
     });
     if (ok) return;
   }
 
-  // Nếu người dùng bấm chậm mà chưa có slowAudioUrl, thử backend/Cloud TTS để render bản chậm thật.
-  // Với bản thường, backend cũng giúp cố định giọng nữ Xiaoxiao nếu không có audioUrl.
-  const cloudPlayed = await tryPlayCloudMandarinTts({ textRaw: textForSpeech, speedMode, level, onStart, onEnd });
-  if (cloudPlayed) return;
+  // Bản FREE-only: không gọi Cloud/Backend TTS trả phí.
+  // Fallback miễn phí: browser TTS, chọn voice Mandarin nữ tốt nhất và chia cụm để giọng điềm đạm hơn.
+  const spoken = speakMandarinBrowserCalm({
+    textRaw: textForSpeech,
+    speedMode,
+    level,
+    onStart,
+    onEnd,
+    onUnsupported
+  });
 
-  // Nếu bấm chậm nhưng không có slowAudioUrl/backend, phát bản normal nếu có để tránh méo âm.
-  // Đây không phải bản chậm, nhưng tốt hơn là kéo playbackRate làm sai thanh điệu.
-  if (speedMode === 'slow') {
-    const normalAudioUrl = getNativeNormalAudioUrl(source);
-    if (normalAudioUrl) {
-      console.warn('No slow Mandarin audio available. Playing normal female/native audio instead to avoid tone distortion.');
-      const ok = playAudioElement({
-        audioUrl: normalAudioUrl,
-        onStart: () => { if (typeof onStart === 'function') onStart('normal'); },
-        onEnd
-      });
-      if (ok) return;
-    }
-  }
-
-  // Dự phòng cuối cùng: Browser TTS nữ nếu trình duyệt có. Không đảm bảo native-level.
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    if (typeof onUnsupported === 'function') onUnsupported();
-    return;
-  }
-
-  const cleanText = cleanMandarinTextForSpeech(textForSpeech);
-  if (!cleanText) return;
-
-  const utterance = new SpeechSynthesisUtterance(cleanText);
-  utterance.lang = 'zh-CN';
-  utterance.voice = getBestMandarinFemaleVoice();
-  utterance.rate = getMandarinSpeechRate(speedMode, level);
-  utterance.pitch = 1.02;
-  utterance.volume = 1;
-
-  const finish = () => {
-    if (typeof onEnd === 'function') onEnd();
-  };
-
-  utterance.onend = finish;
-  utterance.onerror = finish;
-
-  if (typeof onStart === 'function') onStart(speedMode);
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
+  if (!spoken && typeof onEnd === 'function') onEnd();
 };
 
 // --- MOCK DATABASE ---
@@ -1254,9 +1285,9 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
                     <div><label className="block text-xs font-bold mb-1">Pinyin</label><input type="text" value={editingTopic.hint.pinyin} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, pinyin: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" /></div>
                     <div><label className="block text-xs font-bold mb-1">Tiếng Việt</label><input type="text" value={editingTopic.hint.vi} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, vi: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" /></div>
                     <div><label className="block text-xs font-bold mb-1">Tiếng Anh (Cho giao diện EN)</label><input type="text" value={editingTopic.hint.en || ''} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, en: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" /></div>
-                    <div><label className="block text-xs font-bold mb-1">Link audio nữ bản địa / Cloud TTS MP3 — tốc độ chuẩn</label><input type="text" value={editingTopic.hint.audioUrl || editingTopic.hint.audio_url || ''} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, audioUrl: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" placeholder="VD: https://.../nihao_normal_female.mp3" /></div>
-                    <div><label className="block text-xs font-bold mb-1">Link audio nữ bản địa / Cloud TTS MP3 — bản chậm không méo chữ</label><input type="text" value={editingTopic.hint.slowAudioUrl || editingTopic.hint.slow_audio_url || ''} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, slowAudioUrl: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" placeholder="VD: https://.../nihao_slow_female.mp3 — nên là file được thu/synthesize chậm riêng, không phải file chuẩn bị kéo chậm" /></div>
-                    <p className="text-[11px] text-slate-500">Muốn giọng siêu chuẩn, hãy dùng giọng nữ bản địa hoặc Cloud TTS giọng nữ. Bản chậm nên là file chậm riêng để không làm bẹt thanh điệu.</p>
+                    <div><label className="block text-xs font-bold mb-1">Link audio mẫu miễn phí / giọng nữ bản địa MP3 — tốc độ chuẩn</label><input type="text" value={editingTopic.hint.audioUrl || editingTopic.hint.audio_url || ''} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, audioUrl: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" placeholder="VD: https://.../nihao_normal_female.mp3" /></div>
+                    <div><label className="block text-xs font-bold mb-1">Link audio mẫu miễn phí / giọng nữ bản địa MP3 — bản chậm không méo chữ</label><input type="text" value={editingTopic.hint.slowAudioUrl || editingTopic.hint.slow_audio_url || ''} onChange={e => setEditingTopic({ ...editingTopic, hint: { ...editingTopic.hint, slowAudioUrl: e.target.value } })} className="w-full p-2 border rounded-lg text-slate-900 placeholder:text-slate-500" placeholder="VD: https://.../nihao_slow_female.mp3 — nên là file được thu/synthesize chậm riêng, không phải file chuẩn bị kéo chậm" /></div>
+                    <p className="text-[11px] text-slate-500">Muốn giọng ổn định nhất mà vẫn miễn phí, hãy dùng file MP3 do giáo viên/native speaker nữ thu sẵn. Bản chậm nên là file chậm riêng để không làm bẹt thanh điệu.</p>
                   </div>
                   <div className="flex gap-4 mt-8 pt-4 border-t"><button onClick={() => saveTopic(false)} className="flex-1 bg-slate-200 py-3 rounded-xl font-bold">Lưu Nháp</button><button onClick={() => saveTopic(true)} className="flex-1 bg-[#C8102E] text-white py-3 rounded-xl font-bold">Lưu & Public</button></div>
                 </div>
@@ -1390,7 +1421,7 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
                             </div>
 
                             <div>
-                              <label className="block text-xs font-bold mb-1 text-slate-700">Link audio nữ bản địa / Cloud TTS MP3 — tốc độ chuẩn</label>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Link audio mẫu miễn phí / giọng nữ bản địa MP3 — tốc độ chuẩn</label>
                               <input
                                 type="text"
                                 value={item.audioUrl || ''}
@@ -1405,7 +1436,7 @@ function AdminPanel({ dbTopics, setDbTopics, dbShadowing, setDbShadowing, adminP
                             </div>
 
                             <div>
-                              <label className="block text-xs font-bold mb-1 text-slate-700">Link audio nữ bản địa / Cloud TTS MP3 — bản chậm không méo chữ</label>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">Link audio mẫu miễn phí / giọng nữ bản địa MP3 — bản chậm không méo chữ</label>
                               <input
                                 type="text"
                                 value={item.slowAudioUrl || ''}
