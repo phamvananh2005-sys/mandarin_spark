@@ -95,7 +95,7 @@ const dict = {
     received: "Đã nhận",
     step2: "2. Chọn chế độ luyện tập:",
     shadowingTitle: "Shadowing",
-    shadowingDesc: "Bắt chước lại theo từ vựng hoặc câu mẫu. Nghe mẫu, thu âm và tự nghe lại để luyện đến khi giống mẫu.",
+    shadowingDesc: "Bắt chước lại theo từ vựng hoặc câu mẫu. AI đánh giá chi tiết độ chính xác âm tiết. Luyện đến khi đạt chuẩn.",
     topicTitle: "Nói theo chủ đề",
     topicDesc: "Thuyết trình theo chủ đề. Đánh giá đa chiều về độ trôi chảy, bám sát nội dung, từ vựng và ngữ pháp bằng AI.",
     freeTitle: "Nói tự do",
@@ -121,16 +121,16 @@ const dict = {
     chooseOther: "Chọn bài khác",
     listenSlow: "Chậm",
     listenNormal: "Chuẩn",
-    yourTurn: "Nghe mẫu, thu âm lại và tự nghe bản ghi của mình để so sánh với mẫu.",
+    yourTurn: "Sử dụng nút Thu âm trực tiếp và bắt chước lại để AI đánh giá độ chính xác.",
     uploadFile: "Tải file lên",
-    uploadWarn: "Bạn có thể tải file lên để nghe lại và tự so sánh với mẫu.",
+    uploadWarn: "Hệ thống sẽ không thể nhận diện lỗi phát âm chi tiết bằng cách này.",
     recDirect: "Thu âm trực tiếp",
-    recBtn: "Thu âm bài nói",
+    recBtn: "Chấm điểm bằng giọng nói",
     stopRec: "DỪNG THU",
     recommended: "Khuyên dùng",
     aiEvaluating: "AI đang thẩm định và viết nhận xét...",
     waitMsg: "Quá trình đánh giá ngôn ngữ mất vài giây nhé!",
-    grading: "Đang xử lý bản ghi...",
+    grading: "AI đang phân tích độ chính xác...",
     tryAgain: "Thử lại câu này",
     nextItem: "Chuyển tiếp",
     analysis: "Phân tích chi tiết từ AI:",
@@ -176,7 +176,7 @@ const dict = {
     received: "Received",
     step2: "2. Select training mode:",
     shadowingTitle: "Shadowing",
-    shadowingDesc: "Imitate vocabulary or sentences. Listen, record, and replay your own voice to compare with the model.",
+    shadowingDesc: "Imitate vocabulary or sentences. Get detailed AI evaluation of your accuracy.",
     topicTitle: "Topic Speaking",
     topicDesc: "Present on a topic. Multi-dimensional AI evaluation of fluency, relevance, and grammar.",
     freeTitle: "Free Speaking",
@@ -202,16 +202,16 @@ const dict = {
     chooseOther: "Choose another lesson",
     listenSlow: "Slow",
     listenNormal: "Normal",
-    yourTurn: "Listen to the model, record yourself, then replay your voice to compare.",
+    yourTurn: "Use Direct Record and imitate the sample for AI accuracy check.",
     uploadFile: "Upload File",
-    uploadWarn: "Upload a file to replay it and compare with the model.",
+    uploadWarn: "System cannot provide detailed pronunciation errors via file upload.",
     recDirect: "Direct Record",
-    recBtn: "Record my speech",
+    recBtn: "Grade my speech",
     stopRec: "STOP REC",
     recommended: "Recommended",
     aiEvaluating: "AI is evaluating and generating feedback...",
     waitMsg: "Linguistic analysis takes a few seconds!",
-    grading: "Processing recording...",
+    grading: "AI is analyzing accuracy...",
     tryAgain: "Try Again",
     nextItem: "Next",
     analysis: "AI Detailed Analysis:",
@@ -1635,7 +1635,7 @@ QUY TẮC CHẤM ĐIỂM:
 // ---------------------------------------------------------
 // COMPONENT: THU ÂM (TÍCH HỢP SPEECH RECOGNITION + OPENAI )
 // ---------------------------------------------------------
-function AudioInput({ onAudioReady, disableTranscription = false, simplePractice = false }) {
+function AudioInput({ onAudioReady }) {
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -1740,14 +1740,12 @@ function AudioInput({ onAudioReady, disableTranscription = false, simplePractice
 
         let transcript = null;
 
-        if (!disableTranscription) {
-          try {
-            // 🔥 LUÔN dùng OpenAI cho Topic/Free Speaking
-            transcript = await transcribeWithOpenAI(file);
-            console.log("✅ FINAL AI TRANSCRIPT:", transcript);
-          } catch (e) {
-            console.log("❌ OpenAI error:", e);
-          }
+        try {
+          // 🔥 LUÔN dùng OpenAI
+          transcript = await transcribeWithOpenAI(file);
+          console.log("✅ FINAL AI TRANSCRIPT:", transcript);
+        } catch (e) {
+          console.log("❌ OpenAI error:", e);
         }
 
         onAudioReady(
@@ -1789,11 +1787,11 @@ function AudioInput({ onAudioReady, disableTranscription = false, simplePractice
         <input id="file-upload" type="file" accept="audio/*,video/*" className="hidden" onChange={handleFileChange} />
         <Upload size={28} className="text-[#C8102E] mb-3 group-hover:-translate-y-1 transition-transform" />
         <h3 className="font-bold text-slate-800">Tải file lên</h3>
-        <p className="text-xs text-slate-500 mt-1">{simplePractice ? "Nghe lại bản ghi" : "Hệ thống sẽ giả lập chấm điểm"}</p>
+        <p className="text-xs text-slate-500 mt-1">Hệ thống sẽ giả lập chấm điểm</p>
       </div>
 
       <div className={`border-2 rounded-2xl p-6 flex flex-col items-center justify-center transition-all duration-200 ${isRecording ? 'border-[#C8102E] bg-[#fff0f5] shadow-inner' : 'border-[#C8102E]/30 bg-red-50/30 relative overflow-hidden'}`}>
-        {!isRecording && !simplePractice && <div className="absolute top-0 right-0 bg-[#C8102E] text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Khuyên dùng AI</div>}
+        {!isRecording && <div className="absolute top-0 right-0 bg-[#C8102E] text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg">Khuyên dùng AI</div>}
 
         {isRecording ? (
           <>
@@ -1812,7 +1810,7 @@ function AudioInput({ onAudioReady, disableTranscription = false, simplePractice
             <Mic size={28} className="text-[#C8102E] mb-3" />
             <h3 className="font-bold text-slate-800 mb-2">Thu âm trực tiếp</h3>
             <button onClick={startRecording} className="bg-[#C8102E] hover:bg-[#9b111e] text-white px-4 py-1.5 rounded-full text-xs font-bold transition-colors">
-              {simplePractice ? 'Bắt đầu thu âm' : 'Chấm điểm bằng giọng nói'}
+              Chấm điểm bằng giọng nói
             </button>
           </>
         )}
@@ -2054,7 +2052,8 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
 
   const [recordedFile, setRecordedFile] = useState(null);
   const [recordedUrl, setRecordedUrl] = useState(null);
-  const [isProcessingRecording, setIsProcessingRecording] = useState(false);
+  const [sentenceResult, setSentenceResult] = useState(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
   const [isPlayingModel, setIsPlayingModel] = useState(false);
 
   useEffect(() => { if (!studentName) onRequireName(); }, []);
@@ -2127,19 +2126,73 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
     window.speechSynthesis.speak(utterance);
   };
 
-  const handleAudioReady = async (file, url) => {
+  const handleAudioReady = async (file, url, transcriptStr, isFile) => {
     setRecordedFile(file);
     setRecordedUrl(url);
-    setIsProcessingRecording(true);
+    setIsEvaluating(true);
 
-    // Shadowing chỉ dùng để luyện nghe - nhắc lại - nghe lại, không gọi AI chấm điểm.
-    await new Promise(r => setTimeout(r, 200));
-    setIsProcessingRecording(false);
+    try {
+      // Đợi 0.5s để UI "Đang phân tích" kịp hiển thị trước khi gọi AI
+      await new Promise(r => setTimeout(r, 500));
+
+      let res;
+      if (isFile) {
+        const criteria_scores = makeDefaultCriteriaScores(type || 'sentence', 0.65);
+        res = normalizeChineseAssessmentResult({
+          total_score: totalCriteriaScore10(criteria_scores),
+          criteria_scores,
+          feedback: {
+            strengths: ['Bạn đã nộp được file âm thanh để hệ thống ghi nhận phần shadowing.'],
+            errors_found: [],
+            practice_suggestions: ['Dùng Thu âm trực tiếp để AI phân tích phát âm, thanh điệu, biến điệu và nhịp câu chính xác hơn.'],
+            native_suggestion: 'Hãy nghe mẫu 2–3 lần, đánh dấu thanh điệu rồi đọc lại theo cụm ngắn.'
+          }
+        }, type || 'sentence', lang);
+      } else {
+        const currentItem = selectedLesson.items[currentIndex];
+
+        // SỬA LỖI: Cho phép nhận diện cả những từ vựng có 1 chữ Hán (length === 0 mới báo lỗi)
+        if (!transcriptStr || transcriptStr.trim().length === 0) {
+          res = {
+            score: '2.0', level: lang === 'en' ? 'Needs Practice' : 'Cần luyện tập thêm',
+            criteria: { [t('cPronunciation')]: '2.0', [t('cFluency')]: '2.0' },
+            feedback: lang === 'en' ? 'The system could not clearly recognize what you said. Please check your microphone and speak louder.' : 'Hệ thống không nhận diện rõ bạn nói gì. Vui lòng kiểm tra Micro và thử nói lớn hơn nhé.'
+          };
+        } else {
+          // 🔥 KIỂM TRA NGÔN NGỮ: Nếu không phải tiếng Trung thì cảnh báo
+          const langViolation = detectLanguageViolation(transcriptStr);
+          if (langViolation && langViolation.violated) {
+            res = {
+              score: '1.0',
+              level: lang === 'en' ? 'Wrong Language' : 'Sai Ngôn Ngữ',
+              criteria: { [t('cPronunciation')]: '1.0', [t('cFluency')]: '1.0', [t('cContentAccuracy')]: '1.0' },
+              feedback: lang === 'en'
+                ? `⚠️ ERROR: You spoke ${langViolation.language} instead of Mandarin Chinese! The target was:\n${currentItem.cn} (${currentItem.pinyin})\n\nPlease try again in Mandarin.`
+                : `⚠️ LỖI: Bạn nói tiếng ${langViolation.language} thay vì tiếng Trung Quốc! Bạn cần nói:\n${currentItem.cn} (${currentItem.pinyin})\n\nVui lòng thử lại bằng tiếng Trung.`
+            };
+          } else {
+            const apiRes = await evaluateWithOpenAI(transcriptStr, currentItem.cn, level, type, lang);
+            if (apiRes) {
+              res = apiRes;
+            } else {
+              // Fallback an toàn nếu API quá tải
+              res = generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t);
+            }
+          }
+        }
+      }
+      setSentenceResult(res);
+    } catch (error) {
+      console.error("Shadowing Error:", error);
+      const currentItem = selectedLesson.items[currentIndex];
+      setSentenceResult(generateGradingResultFallback(transcriptStr, currentItem.cn, level, type, lang, t));
+    } finally {
+      setIsEvaluating(false);
+    }
   };
 
   const nextItem = () => {
-    setRecordedFile(null);
-    setRecordedUrl(null);
+    setRecordedFile(null); setRecordedUrl(null); setSentenceResult(null);
     setCurrentIndex(prev => prev + 1);
   };
 
@@ -2244,46 +2297,42 @@ function ShadowingMode({ studentName, onRequireName, dbShadowing }) {
           </div>
         </div>
 
-        {!recordedFile && !isProcessingRecording && (
+        {!recordedFile && !isEvaluating && (
           <div className="animate-in fade-in">
             <div className="bg-red-50 text-red-800 p-3 rounded-lg mb-4 text-sm font-medium border border-red-200">
               <Info size={16} className="inline mr-1" />
               {t('yourTurn')}
             </div>
-            <AudioInput onAudioReady={handleAudioReady} disableTranscription simplePractice />
+            <AudioInput onAudioReady={handleAudioReady} />
           </div>
         )}
 
-        {isProcessingRecording && (
+        {isEvaluating && (
           <div className="py-8 flex flex-col items-center">
             <Activity size={48} className="text-[#C8102E] animate-bounce mb-4" />
             <p className="font-medium text-slate-600">{t('grading')}</p>
           </div>
         )}
 
-        {recordedFile && !isProcessingRecording && (
+        {sentenceResult && !isEvaluating && (
           <div className="animate-in slide-in-from-bottom-4">
-            <div className="p-6 rounded-2xl border shadow-sm bg-green-50 border-green-200 mb-6">
-              <div className="flex items-start gap-3 mb-4">
-                <CheckCircle2 className="text-green-600 shrink-0 mt-0.5" size={24} />
-                <div>
-                  <h4 className="font-bold text-slate-800 mb-1 text-lg">
-                    {lang === 'en' ? 'Recording ready' : 'Đã ghi âm xong'}
-                  </h4>
-                  <p className="text-sm text-slate-700 leading-relaxed font-medium">
-                    {lang === 'en'
-                      ? 'Listen to your recording again, compare it with the sample, then practice it again or move on to the next item.'
-                      : 'Hãy nghe lại bản thu của mình, so sánh với mẫu, rồi luyện lại hoặc chuyển sang mục tiếp theo.'}
-                  </p>
-                </div>
+            <div className={`p-6 rounded-2xl border shadow-sm ${parseFloat(sentenceResult.score) >= 8.0 ? 'bg-green-50 border-green-200' : parseFloat(sentenceResult.score) >= 6.0 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'} mb-6 flex flex-col md:flex-row gap-6 items-center md:items-start`}>
+
+              <div className={`w-24 h-24 rounded-full flex items-center justify-center flex-col shadow-inner shrink-0 ${parseFloat(sentenceResult.score) >= 8.0 ? 'bg-green-500 text-white' : parseFloat(sentenceResult.score) >= 6.0 ? 'bg-yellow-500 text-white' : 'bg-red-500 text-white'}`}>
+                <span className="font-black text-3xl">{sentenceResult.score}</span>
               </div>
-              <div className="bg-white/70 p-2 rounded-lg w-full">
-                <audio controls src={recordedUrl} className="h-10 w-full rounded" />
+
+              <div className="flex-1 w-full text-center md:text-left">
+                <h4 className="font-bold text-slate-800 mb-2 text-lg">{t('analysis')}</h4>
+                <p className="text-sm text-slate-700 mb-4 leading-relaxed font-medium">{sentenceResult.feedback}</p>
+                <div className="bg-white/50 p-2 rounded-lg inline-block w-full">
+                  <audio controls src={recordedUrl} className="h-10 w-full rounded" />
+                </div>
               </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-4 mt-8 pt-6 border-t border-slate-200">
-              <button onClick={() => { setRecordedFile(null); setRecordedUrl(null); }} className="flex-1 py-4 bg-white border border-slate-300 hover:border-[#C8102E] hover:text-[#C8102E] text-slate-700 font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
+              <button onClick={() => { setRecordedFile(null); setSentenceResult(null); }} className="flex-1 py-4 bg-white border border-slate-300 hover:border-[#C8102E] hover:text-[#C8102E] text-slate-700 font-bold rounded-xl transition-colors flex items-center justify-center gap-2">
                 <RefreshCcw size={18} /> {t('tryAgain')}
               </button>
               <button onClick={nextItem} className="flex-1 py-4 bg-[#C8102E] hover:bg-[#9b111e] text-white font-black tracking-wide rounded-xl transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-500/30">
